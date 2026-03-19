@@ -1,0 +1,86 @@
+---
+description: 복셀 카빙·Precision 호모그래피·주얼리 세그·multer2 — 의미·구현 위치·환경변수
+alwaysApply: false
+---
+
+# Archimedes — 고난도 확장 항목 (1~4)
+
+스펙 근거: `project-concept.mdc` §3·§5·§8, `archimedes-implementation-plan.mdc` Phase 2~3.
+
+---
+
+## 1. 복셀 카빙 (Visual Hull / Voxel carving)
+
+### 무엇인가
+3D 공간을 작은 큐브(복셀) 격자로 나누고, 각 복셀 중심을 **각 뷰의 실루엣(주얼리 마스크)** 에 투영했을 때 **모든 뷰 안에 동시에 들어오는** 점만 남겨 부피를 합산하는 방식. 다시점 실루엣의 교집합으로 **상한 부피(Visual Hull)** 에 해당.
+
+### 이 레포에서의 구현
+- **코드**: `worker/app/pipeline/voxel.py` — `carve_visual_hull_mm3()`, `slab_aabb_intervals_mm()` (슬랩 교차로 AABB 구한 뒤 그 안에서 카빙).
+- **기하**: `worker/app/pipeline/geometry_project.py` — 월드(mm, 카드 중심 weak 모델) → 이미지 픽셀 투영.
+- **폴백**: 카빙 결과가 0이거나 비정상이면 기존 **슬랩 AABB 부피**(`volume_from_view_bboxes`)로 대체.
+- **다해상도**: 격자 `N` vs `N/2` 부피 상대차가 임계값 초과 시 `multires_penalty` (기존 로직과 동일 축).
+
+### 환경변수
+| 변수 | 기본 | 설명 |
+|------|------|------|
+| `ARCHIMEDES_USE_VOXEL_CARVE` | `1` | `0`이면 슬랩 AABB만 사용 |
+
+---
+
+## 2. Precision 호모그래피 (카드 포즈 후보)
+
+### 무엇인가
+카드 평면에 대한 **호모그래피**를 `cv2.decomposeHomographyMat` 로 분해해, 카메라와 카드 평면의 상대 관계 **후보**를 얻는 경로(스펙 §3 Precision / implementation-plan §3.5).  
+**물리적으로 타당한 해**(심도 부호 등)를 고르는 것이 핵심이며, 실패 시 기존 weak G1 유지.
+
+### 이 레포에서의 구현
+- **코드**: `worker/app/pipeline/precision_homography.py` — 내부 파라미터 `K`를 휴리스틱으로 두고 분해·간단 체리얼리티 검사.
+- **연동**: `worker/app/pipeline/card.py` 의 `CardGeometry`에 `precision_pose_candidate`, `precision_solution_count` 기록.
+- **제품 효과**: `runner` 메타에 노출; **5뷰 중 일정 수 이상**에서 후보 인정 시 `confidence` 티어에 **소폭 보너스**(과장 없이 플래그 수준).
+
+### 한계 (명시)
+- 초점·센서를 모를 때 `K`는 근사이므로 **감정급 포즈는 아님**. v1.5+에서 EXIF 초점거리·센서 폭과 결합해 강화.
+
+---
+
+## 3. 주얼리 특화 세그멘테이션
+
+### 무엇인가
+범용 밝기/Otsu 대신 **귀금속 전경**을 안정적으로 분리하는 경로. 학습 모델(ONNX)·`rembg` 등 **백엔드 교체 가능** 구조가 목표.
+
+### 이 레포에서의 구현
+- **코드**: `worker/app/pipeline/segment.py` — `heuristic`(기본) / `rembg`(옵션, 패키지 설치 시).
+- **옵션 의존성**: `pip install -e ".[seg-rembg]"` → `rembg` 사용 가능.
+
+### 환경변수
+| 변수 | 값 | 설명 |
+|------|-----|------|
+| `ARCHIMEDES_SEGMENTATION_BACKEND` | `heuristic` \| `rembg` | 기본 `heuristic` |
+
+---
+
+## 4. multer 2.x 마이그레이션
+
+### 무엇인가
+NestJS 업로드에 쓰는 **multer** 메이저 업그레이드(보안·유지보수). API 계약(multipart 필드명)은 동일.
+
+### 이 레포에서의 구현
+- **코드**: `api/package.json` — `multer@^2.0.0` (Nest `FileFieldsInterceptor`와 호환 확인).
+- **검증**: `cd api && npm run build` — 업로드 계약(필드명 5뷰) 동일.
+
+---
+
+## 상호 참조
+- 실행: `archimedes-runbook.mdc`
+- 로드맵 체크리스트: `archimedes-implementation-plan.mdc`
+
+---
+
+## 구현 상태 요약 (이 레포)
+
+| # | 항목 | 상태 | 비고 |
+|---|------|------|------|
+| 1 | 복셀 카빙 | **v1 스캐폴드** | `voxel.py` + `geometry_project.py`; `ARCHIMEDES_USE_VOXEL_CARVE` |
+| 2 | Precision 호모그래피 | **v0** | `precision_homography.py` + `CardGeometry` 메타; tier 소폭 보정 |
+| 3 | 주얼리 세그 | **heuristic + rembg 옵션** | `segment.py`; `pip install -e ".[seg-rembg]"` |
+| 4 | multer 2.x | **적용** | `api/package.json` `multer@^2.0.0` |

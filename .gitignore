@@ -1,0 +1,15 @@
+.env
+node_modules/
+dist/
+build/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+*.egg-info/
+.DS_Store
+web/dist/
+api/dist/
+output_debug/

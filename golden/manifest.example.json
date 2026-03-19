@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "description": "복사하여 manifest.json 으로 저장하고 cases/ 에 5뷰 이미지를 둔다.",
+  "cases": [
+    {
+      "id": "example_ring_01",
+      "views": {
+        "front": "cases/example_ring_01/front.jpg",
+        "top": "cases/example_ring_01/top.jpg",
+        "left": "cases/example_ring_01/left.jpg",
+        "right": "cases/example_ring_01/right.jpg",
+        "back": "cases/example_ring_01/back.jpg"
+      },
+      "input": {
+        "metal": "gold",
+        "purity": "18k",
+        "product_k": "ring"
+      },
+      "expect": {
+        "mass_est_g_min": 2.0,
+        "mass_est_g_max": 12.0,
+        "tier_in": ["low", "medium", "high"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,170 @@
+---
+description: Archimedes 로컬·Docker 실행 방법, 포트, 환경변수, 트러블슈팅 (개발자 런북)
+alwaysApply: false
+---
+
+# Archimedes — 실행·운영 런북
+
+스펙·로드맵: `project-concept.mdc`, `archimedes-implementation-plan.mdc`.  
+코드 루트: 저장소 최상위 `README.md`.
+
+---
+
+## 1. 사전 요구사항
+
+| 도구 | 용도 |
+|------|------|
+| **Docker Desktop** (또는 Docker Engine + Compose v2) | 권장: 전 스택 기동 |
+| **Node.js 20+** | API·웹 단독 개발 시 |
+| **Python 3.11+** | Worker 단독 테스트 시 |
+
+---
+
+## 2. 전 스택 (Docker Compose) — 권장
+
+### 2.1 한 번에 기동
+
+저장소 루트에서:
+
+```bash
+docker compose up --build
+```
+
+- **첫 기동** 시 MySQL 초기화·MinIO 버킷 생성(`minio-init`)이 끝난 뒤 `worker` / `worker-consumer` / `api` 가 순서대로 올라갑니다.
+- **`.env` 파일은 필수 아님**: `docker-compose.yml`의 `x-app-db` 앵커에 로컬 개발용 기본값이 들어 있습니다. 호스트에서 Worker만 돌리거나 비밀번호를 바꿀 때는 `.env.example`을 복사해 조정합니다.
+
+```bash
+cp .env.example .env   # 선택
+```
+
+### 2.2 서비스·URL·포트
+
+| 서비스 | 컨테이너 | 호스트 URL | 비고 |
+|--------|----------|------------|------|
+| **web** | nginx + 정적 빌드 | http://localhost:5173 | `/api/*` → API로 리버스 프록시 |
+| **api** | NestJS | http://localhost:3000 | API 베이스: `/v1` |
+| **worker** | FastAPI (uvicorn) | http://localhost:8000 | `/health`, `/v1/meta` |
+| **worker-consumer** | Python 큐 소비 | (포트 없음) | `docker compose logs -f worker-consumer` 로 확인 |
+| **mysql** | 8.0 | localhost:3306 | DB `archimedes` / 유저 동명 |
+| **redis** | 7 | localhost:6379 | 큐 `archimedes:queue` (기본) |
+| **minio** | S3 호환 | API :9000, 콘솔 :9001 | 계정 `minioadmin` / `minioadmin` |
+
+### 2.3 정상 동작 확인 절차
+
+1. 브라우저에서 http://localhost:5173 → 온보딩·5슬롯 업로드 UI.
+2. 터미널: `curl -s http://localhost:8000/health` → `{"status":"ok"}`.
+3. 터미널: `curl -s http://localhost:3000/v1/legal/terms` → JSON 약관 초안.
+4. 웹에서 **각도별 서로 다른 사진** 5장 업로드 후 분석 요청 → `worker-consumer` 로그에 job 완료/실패.
+
+### 2.4 중지·정리
+
+```bash
+docker compose down
+```
+
+볼륨(DB·MinIO·마스크 출력)까지 지우려면:
+
+```bash
+docker compose down -v
+```
+
+---
+
+## 3. 로컬 분리 실행 (Docker 없이)
+
+인프라만 Compose로 두고 코드만 로컬에서 돌리는 패턴도 가능합니다.
+
+### 3.1 인프라만
+
+```bash
+docker compose up -d mysql redis minio minio-init
+```
+
+MinIO 콘솔에서 버킷이 없다면 `minio-init` 로그를 확인합니다.
+
+### 3.2 API
+
+```bash
+cd api
+export MYSQL_HOST=127.0.0.1 MYSQL_USER=archimedes MYSQL_PASSWORD=archimedes MYSQL_DATABASE=archimedes
+export REDIS_URL=redis://127.0.0.1:6379
+export S3_ENDPOINT=http://127.0.0.1:9000 S3_ACCESS_KEY=minioadmin S3_SECRET_KEY=minioadmin
+export PORT=3000
+npm install && npm run start:dev
+```
+
+### 3.3 Web
+
+```bash
+cd web
+npm install && npm run dev
+```
+
+`vite.config.ts`가 `/api` → `http://localhost:3000/v1` 로 프록시합니다.
+
+### 3.4 Worker (헬스 + 테스트)
+
+```bash
+cd worker
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+export MYSQL_HOST=127.0.0.1 REDIS_URL=redis://127.0.0.1:6379 S3_ENDPOINT=http://127.0.0.1:9000
+uvicorn app.main:app --reload --port 8000
+```
+
+큐 소비(별 터미널):
+
+```bash
+python -m app.consumer
+```
+
+---
+
+## 4. Worker 테스트·품질
+
+```bash
+cd worker && source .venv/bin/activate
+ruff check app tests
+pytest                    # 기본(느린 합성 제외)
+pytest -m slow            # OpenCV 합성 1뷰 체인
+```
+
+**참고**: `worker/tests/conftest.py` 가 기본으로 `ARCHIMEDES_USE_VOXEL_CARVE=0` 을 넣어 **테스트 속도**를 맞춥니다. 복셀 카빙 경로는 프로덕션·수동 검증에서 켜짐(기본 `1`).
+
+### Worker 환경변수 (확장)
+
+| 변수 | 기본 | 설명 |
+|------|------|------|
+| `ARCHIMEDES_USE_VOXEL_CARVE` | `1` | `0`이면 슬랩 AABB만 |
+| `ARCHIMEDES_SEGMENTATION_BACKEND` | `heuristic` | `rembg` 선택 시 옵션 패키지 필요 (`pip install -e ".[seg-rembg]"`) |
+
+자세한 의미: `archimedes-technical-extensions.mdc`.
+
+---
+
+## 5. 자주 겪는 문제 (트러블슈팅)
+
+| 증상 | 원인·조치 |
+|------|-----------|
+| 웹은 뜨는데 결과가 영원히 pending | `worker-consumer` 가 안 떠 있거나 크래시. `docker compose ps` / `logs worker-consumer`. |
+| `ERR_VOLUME` | **동일 파일을 5슬롯에 넣은 경우** 등, 뷰별 기하가 맞지 않을 때 v0 슬랩 AABB가 교차 실패. 각도별 **서로 다른** 촬영본 업로드. |
+| `ERR_CARD_NOT_FOUND` / `ERR_BLUR` | 카드 미포함·해상도·초점. 스펙 §4·§8에 맞게 재촬영. |
+| `ParseUUIDPipe` 400 | `GET /v1/jobs/:id` 의 id는 **UUID v4** 형식이어야 함. |
+| API 400 (이미지 타입) | `image/jpeg`, `image/png`, `image/webp` 만 허용. |
+| 실측 피드백 | `POST /v1/jobs/{uuid}/feedback` JSON `{"actualMassG": number, "notes?": string}` — job이 `completed` 일 때만. 캘리브 제안: `docker compose exec worker python scripts/calibration_suggest.py` |
+| 골든 회귀 | `ARCHIMEDES_GOLDEN_ROOT` 에 `manifest.json` + 이미지 후 `pytest -m golden_manifest` (`golden/README.md`) |
+| MySQL connection refused | Compose 헬스 대기 전에 API/워커가 뜬 경우 드묾 — 재시작. |
+
+---
+
+## 6. CI (참고)
+
+`.github/workflows/ci.yml`: Worker `ruff` + `pytest`, 전체 `docker compose build`.
+
+---
+
+## 7. 보안·프로덕션 (체크리스트)
+
+- Compose 기본 비밀번호·MinIO 키는 **개발 전용**. 배포 시 전부 교체.
+- API에 **Rate limit**, 업로드 **바이러스 스캔**, S3 **수명 주기 정책**은 운영 설계에 추가.
+- TLS 종단(리버스 프록시)과 **CORS 허용 도메인**을 고정.

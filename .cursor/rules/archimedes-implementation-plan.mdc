@@ -1,0 +1,338 @@
+---
+description: Archimedes 구현 로드맵·작업 계획 (Docker 필수·상세 마일스톤)
+alwaysApply: true
+---
+
+# Archimedes — 구현·작업 계획 (상세)
+
+본 문서는 `.cursor/rules/project-concept.mdc` **통합 스펙**을 구현하기 위한 **단계별·세부 작업**이다. 스펙과 충돌 시 **스펙이 우선**한다.
+
+**로컬 기동·포트·환경변수·트러블슈팅**은 `archimedes-runbook.mdc` 를 본다.
+
+**복셀 카빙·Precision 호모그래피·주얼리 세그·multer2** 항목의 정의·코드 위치는 `archimedes-technical-extensions.mdc` 를 본다.
+
+---
+
+## 0. 원칙·범위
+
+- **v1 목표**: 5뷰 → 품질 게이트 → 카드 스케일 → 세그 → **Archimedes-G1** 복셀 카빙 → Hollow → \(\rho\) → `mass_est` + `confidence_tier` (+ 가능 시 `mass_range`).
+- **우선순위 (제품·기술)**: 당분간 **이미지 입력으로 부피·중량(파이프라인) 추정이 맞는지 검증**하는 것이 **네이티브 앱 인앱 촬영보다 앞선다**. 따라서 **지금 단계의 클라이언트는 웹 서비스**로 정한다 — 사용자가 **정면·상·좌·우·후면 등 각도에 맞게 준비한 사진 파일을 업로드**하면 된다. **네이티브 iOS/Android에서 직접 카메라로 찍는 플로우**는 파이프라인·품질이 검증된 뒤 **후속**으로 둔다 (스펙 `project-concept.mdc` §1.6과 동일 취지).
+- **Docker**: 로컬·스테이징·프로덕션 파이프라인의 **기준 런타임**이다. 앱·DB·큐·오브젝트 스토리지는 **컨테이너로 일관**시킨다 (아래 §1).
+- **Precision / LiDAR / XRF / 매장 키트** → v1.5~v2 (스펙 §3, §14.2, §18).
+- **보정 계수·임계값**: Git 버전 + 배포 태그; **운영 중 지속 캘리브레이션**(§14.4).
+
+---
+
+## 1. Docker 표준 스택 (필수)
+
+### 1.1 `docker-compose` 서비스 구성 (권장)
+
+| 서비스 | 이미지/빌드 | 역할 | 포트(예) |
+|--------|-------------|------|----------|
+| **worker** | `./worker` Dockerfile | FastAPI + OpenCV 파이프라인, job 소비 또는 동기 분석 API | `8000` |
+| **redis** | `redis:7-alpine` | BullMQ / ARQ / Celery 브로커 | `6379` |
+| **mysql** | `mysql:8` (또는 `mariadb:11`) | job·user·result 메타 | `3306` |
+| **minio** | `minio/minio` | 로컬·스테이징 **S3 호환** (프리사인 업로드 검증) | `9000`, 콘솔 `9001` |
+| **api** (선택 동시 기동) | `./api` Dockerfile | NestJS 오케스트레이션 | `3000` |
+
+- **네트워크**: 단일 bridge `archimedes_net`, 서비스명으로 DNS (`redis`, `mysql`, `minio`).
+- **볼륨**: `mysql_data`, `minio_data`, (선택) `worker_debug_output` 마스크/중간 산출물.
+- **헬스체크**: `worker` `/health`, `mysql` `mysqladmin ping`, `redis` `redis-cli ping`, `minio` HTTP ready.
+
+### 1.2 Worker Dockerfile (요구사항)
+
+- 베이스: `python:3.12-slim-bookworm` (또는 `3.11`) — **멀티 스테이지** 권장.
+- **빌드 스테이지**: `apt` 로 OpenCV 의존 (`libgl1`, `libglib2.0-0` 등) 또는 `opencv-python-headless` 만으로 충분한지 빌드 CI에서 검증.
+- **런타임**: 비루트 유저, `UVICORN` workers 수 환경변수, `PYTHONUNBUFFERED=1`.
+- **이미지 태그**: `archimedes-worker:${GIT_SHA}` 고정; 프로덕션은 digest 핀.
+
+### 1.3 로컬 개발 워크플로
+
+1. `cp .env.example .env` 후 MinIO 버킷 생성 스크립트 또는 문서화.
+2. `docker compose up -d redis mysql minio` → 스키마 마이그레이션.
+3. `docker compose up --build worker` → `curl localhost:8000/health`.
+4. 테스트: `docker compose run --rm worker pytest -q` (또는 `pytest` 타겟 서비스).
+5. E2E: `docker compose --profile e2e up` (선택 프로파일에 스크립트 컨테이너).
+
+### 1.4 CI (권장)
+
+- PR마다: `docker build worker`, `docker compose run worker pytest`, ruff/mypy(선택).
+- 메인 브랜치: 이미지 레지스트리 푸시 + 취약점 스캔(Trivy 등).
+
+---
+
+## 2. 권장 저장소 레이아웃
+
+```
+project-Archimedes/
+  docker-compose.yml
+  docker-compose.override.yml.example   # 로컬 전용 바인드 마운트
+  .env.example
+  worker/
+    Dockerfile
+    pyproject.toml
+    app/
+      main.py              # FastAPI 앱
+      config.py            # pydantic-settings
+      constants.py         # ID-1, rho, 기본 alpha_k
+      pipeline/            # 단계별 모듈
+        ingest.py
+        quality_gate.py
+        card.py
+        segment.py
+        geometry_g1.py
+        voxel.py
+        hollow.py
+        confidence.py
+      models/              # Pydantic 스키마 (job in/out)
+    tests/
+  api/                     # NestJS (Phase 5~)
+    Dockerfile
+  web/                     # Phase 6 — 웹(각도별 이미지 파일 업로드; 인앱 촬영은 후순위)
+  jobs/                    # Phase 7 — 캘리브·배치 스크립트(선택, worker 재사용)
+  infra/
+    mysql/init/            # 초기 SQL (선택)
+  docs/
+  .cursor/rules/
+```
+
+### 2.1 모노레포 — Phase 7까지 단일 레포로 구현 가능 여부
+
+- **결론**: **가능**하다. Phase 7(골든 세트·캘리브레이션 배치·관측·KPI)까지 **이 레포 하나의 모노레포**에 두는 구성은 기술적으로 무리가 없고, Docker·스펙·테스트·버전을 한곳에서 맞추기 **유리**하다.
+
+| Phase | 모노레포 내 권장 위치 |
+|-------|------------------------|
+| 0~4 | `worker/` (파이프라인·단위 테스트) |
+| 5 | `worker/` + `api/` + 루트 `docker-compose.yml` |
+| 6 | `web/` 또는 `apps/web` — **v1은 웹**에서 **각도별 파일 업로드** 중심이면 단일 레포로 충분 (인앱 카메라는 후순위) |
+| 7 | `worker/tests/golden/`(또는 S3 참조), `jobs/` 또는 `worker/scripts/`(배치), `infra/`(대시보드 JSON·compose 프로파일) |
+
+**별도 레포를 검토하는 경우**
+- **네이티브 iOS/Android** (인앱 카메라·IMU·LiDAR 전용): **현재 로드맵에서는 후순위**다. 당분간 **웹 업로드**로 검증한 뒤 필요 시 **모바일 전용 레포**를 검토한다. 웹만이면 모노레포만으로 Phase 6까지 진행 가능.
+- **관측 스택(Grafana 등)**: 프로세스 실행은 compose/K8s; **설정·대시보드 JSON**은 본 레포 `infra/`에 두고 IaC와 함께 관리.
+
+**CI 권장**
+- 레포가 커지면 **경로 필터**로 `worker/**`, `api/**`, `web/**` 변경 시 해당 패키지만 빌드·테스트해 사이클 시간을 줄인다.
+
+---
+
+## Phase 0 — 저장소·Docker·공통 기반 (약 1주)
+
+### 0.1 레포·문서
+- [ ] 위 디렉터리 구조 생성, 루트 `README.md`에 “Docker로 전체 기동” 절차.
+- [ ] `LICENSE`, `CONTRIBUTING`(선택).
+
+### 0.2 Docker Compose
+- [ ] `docker-compose.yml`: `redis`, `mysql`, `minio`, `worker` 정의.
+- [ ] MinIO 버킷 `archimedes-uploads` 생성 절차 (`mc` 스크립트 또는 문서).
+- [ ] `worker`가 `depends_on` + **condition: service_healthy** (MySQL 준비 후 기동).
+
+### 0.3 Worker 이미지
+- [ ] `worker/Dockerfile` 멀티 스테이지, 로컬 `docker compose build worker` 성공.
+- [ ] `worker/app/main.py`: `GET /health` → `{"status":"ok"}`.
+- [ ] `worker/app/config.py`: `pydantic-settings` — Redis URL, MySQL DSN, S3 endpoint/키, 상수 경로.
+
+### 0.4 Python 품질
+- [ ] `pyproject.toml`: `fastapi`, `uvicorn`, `opencv-python-headless`, `numpy`, `pydantic`, `pydantic-settings`, `httpx`, `pytest`, `pytest-asyncio`, `ruff`.
+- [ ] `ruff check` + `pytest` 를 로컬 및 CI에서 실행.
+
+### 0.5 상수 단일 소스
+- [ ] `constants.py`: ID-1 mm, \(\rho\) 테이블(§6.2), 초기 \(\alpha_k\) 기본값, 복셀 해상도 기본값 플레이스홀더.
+
+**Phase 0 완료 기준**: `docker compose up` 만으로 worker 헬스 OK + `docker compose run worker pytest` 통과(최소 1테스트).
+
+---
+
+## Phase 1 — 입출력·품질 게이트 (약 1~2주)
+
+### 1.1 입력 스키마
+- [ ] Pydantic: `JobInput` — 5개 이미지 URL 또는 presigned GET, 뷰 라벨, `metal`, `purity`, `product_k`, (선택) `reference_weight_g`, `device_model`.
+- [ ] MinIO/S3에서 5장 다운로드 → 메모리 또는 `/tmp` 캐시, 타임아웃·크기 상한.
+
+### 1.2 EXIF
+- [ ] `pillow` 또는 `exifread`: focal length, sensor width(가능 시), orientation.
+- [ ] 결과를 `JobContext` 에 저장 (이후 Precision·로깅용).
+
+### 1.3 품질 게이트 (§8)
+- [ ] 최소 변 길이(예: 1600px) 실패 → `ERR_RESOLUTION`.
+- [ ] Laplacian variance < T → `ERR_BLUR` (T는 `constants` + 추후 튜닝).
+- [ ] 과노출/과소노출 휴리스틱(히스토그램) → `ERR_EXPOSURE`.
+- [ ] 에러 응답 JSON: `code`, `message`, `retry_step` (뷰 인덱스).
+
+### 1.4 카드 선검출 (게이트만)
+- [ ] 카드 미검출 시 즉시 실패하지 말고 Phase 2에서 통합해도 됨 — 단, **스펙상** 5뷰 카드 권장이므로 v1에서는 **뷰별 카드 필수**로 실패 처리 권장 → `ERR_CARD_NOT_FOUND`, `retry_step`.
+
+### 1.5 \(\sigma_i\) 일관성 (카드 검출 후)
+- [ ] 5개 \(\sigma_i\) 수집 후 중앙값 대비 ±8% 초과 뷰 → `ERR_SCALE_MISMATCH` + 해당 뷰 재촬영 안내.
+
+**Phase 1 완료 기준**: 고의로 나쁜 이미지 넣었을 때 위 에러 코드가 안정적으로 반환.
+
+---
+
+## Phase 2 — 카드·세그멘테이션·실루엣 (약 2~3주)
+
+### 2.1 카드 기하
+- [ ] 윤곽/근사 사각형으로 카드 쿼드; 실패 시 에러.
+- [ ] `cv2.getPerspectiveTransform` → 정면 워프(시각화용).
+- [ ] \(\sigma_i\) = ID-1 가로(mm) / 워프 후 카드 픽셀 너비.
+
+### 2.2 주얼리 마스크 (§5)
+- [ ] 전경 마스크 파이프라인 v0 (색 임계값 또는 rembg).
+- [ ] `dilate(P_card, r)` 후 `jewel = fg - card_region`.
+- [ ] 면적 비율 게이트: 너무 작음/큼 → `ERR_SILHOUETTE_AREA`.
+
+### 2.3 전처리
+- [ ] CLAHE 제한적 적용(파라미터 상수화).
+- [ ] 모폴로지 open/close 커널 크기 상수.
+
+### 2.4 디버그
+- [ ] 환경변수 `DEBUG_SAVE_MASKS=1` 시 `/output` 볼륨에 마스크 PNG 저장 (Docker 볼륨 마운트).
+
+### 2.5 (기술 부채 티켓)
+- [ ] 주얼리 특화 세그 모델 학습·ONNX 배포 일정 §15.2에 링크.
+
+**Phase 2 완료 기준**: 실제/테스트 5뷰에서 이진 마스크 5장 산출 + 시각 검수 가능.
+
+---
+
+## Phase 3 — 기하 G1·복셀 카빙 (약 2~4주)
+
+### 3.1 좌표·AABB
+- [ ] 뷰별 실루엣을 mm 2D로 투영(§3.2 규칙).
+- [ ] 5뷰 bbox로 월드 AABB 초기화 + 마진 5~10%.
+
+### 3.2 복셀 카빙
+- [ ] 해상도 `N` (상수, 예: 128 또는 256) — 메모리 프로파일링.
+- [ ] weak-perspective: 복셀 → 각 뷰 평면 투영 → 마스크 내부 판정.
+- [ ] \(V_{\text{hull}}\) mm³ 합산.
+
+### 3.3 다해상도
+- [ ] `N` 과 `N/2` 두 번 실행, 상대 변화 >12% → `confidence_tier` 페널티 플래그.
+
+### 3.4 단위 테스트
+- [ ] 합성 직육면체(알려진 스케일)로 부피 오차 상한 검증(완화된 tolerance).
+
+### 3.5 (v1.5 백로그)
+- [ ] `cv2.decomposeHomographyMat` + positive depth + 명목축 점수 → Precision 경로; 실패 시 G1 폴백.
+
+**Phase 3 완료 기준**: 골든 샘플 1건 이상에서 재현 가능한 \(V_{\text{hull}}\) + 테스트 통과.
+
+---
+
+## Phase 4 — Hollow·무게·신뢰도 (약 1~2주)
+
+### 4.1 Hollow
+- [ ] `V_adj = alpha_k * V_hull + beta_k` (초기 `beta_k=0`, `alpha_k` 보수적).
+- [ ] `product_k` 매핑 테이블.
+
+### 4.2 밀도
+- [ ] `rho` 조회 by metal+purity; 단위 변환 버그 방지 단위 테스트.
+
+### 4.3 `confidence_tier`
+- [ ] 규칙 엔진 v0: 품질 게이트 전부 통과 + 다해상도 안정 + \(\sigma\) 일관 → `high`; 일부 완화 → `medium`; 그 외 `low`.
+- [ ] tier → (선택) 금액 API 호출 여부는 Phase 6에서 소비.
+
+### 4.4 (선택) mass_range·confidence_pct
+- [ ] \(\sigma_i\) 분산·\(V\) 다해상도 차이로 MIN/EST/MAX 휴리스틱(§15.1).
+
+### 4.5 Prior 플라우저빌리티 (§6.4)
+- [ ] `m_est`가 prior 구간 밖이면 tier 한 단계 강등 (값 덮어쓰기 금지).
+
+### 4.6 출력 JSON (§1.4)
+- [ ] 스키마 고정 + `algorithm_version` 문자열 필드.
+
+**Phase 4 완료 기준**: 단일 `POST` (또는 큐 job 결과)로 전체 파이프라인 JSON 완성.
+
+---
+
+## Phase 5 — 큐·DB·오케스트레이션 (약 2~3주)
+
+### 5.1 Job 모델 (MySQL)
+- [ ] 테이블: `jobs(id, status, input_json, result_json, error_code, created_at, …)`, `algorithm_version`.
+- [ ] 마이그레이션 도구: Prisma / TypeORM / Flyway 중 택일.
+
+### 5.2 Redis 큐
+- [ ] Worker: job pull → 파이프라인 실행 → 결과 write.
+- [ ] 재시도: 최대 N회, dead-letter 또는 `failed` 상태.
+
+### 5.3 API 노출
+- [ ] `POST /jobs` (본문에 S3 키 또는 URL), `GET /jobs/:id`.
+- [ ] NestJS가 동일 계약으로 프록시하거나, v1은 worker만 노출 후 이중화.
+
+### 5.4 Docker
+- [ ] `api` 서비스 Dockerfile, compose에 추가; `worker`와 동일 네트워크에서 `redis`, `mysql` 접속.
+
+**Phase 5 완료 기준**: compose 전체 기동 후 스크립트로 job 생성→`completed` 조회.
+
+---
+
+## Phase 6 — 프론트·견적 UX (약 1~2주, 병행 가능)
+
+**v1 범위**: **웹**에서 5(또는 스펙이 정한) **뷰마다 이미지 파일 선택·업로드**(드래그앤드롭·`<input type="file">` 다중 또는 슬롯별). 카메라 API로 **즉시 촬영**하는 네이티브/웹캠 강제 플로우는 **나중 에픽**으로 분리한다.
+
+### 6.1 온보딩
+- [ ] §9.1 분기 UI, 촬영 체크리스트(카드 동일 평면, 거리, 저울 금지).
+
+### 6.2 결과 화면
+- [ ] `mass_est`, `mass_range`, `confidence_pct`, `confidence_tier`, 면책 문구.
+- [ ] tier `low` 시 시세·원화 숨김(§14.1).
+
+### 6.3 법무
+- [ ] 약관·개인정보 처리방침 초안(보관 기간 §17).
+
+---
+
+## Phase 7 — 데이터·운영 (지속)
+
+### 7.1 골든 세트
+- [ ] `tests/golden/` 또는 S3 버킷; CI에서 worker 이미지로 회귀 (허용 오차 문서화).
+
+### 7.2 캘리브레이션 배치
+- [ ] 옵트인 피드백 테이블 → 주간 배치로 \(\alpha_{k,s}\)·prior 업데이트 제안(수동 승인).
+
+### 7.3 관측
+- [ ] OpenTelemetry/Sentry worker 연동; tier·에러 코드 대시보드.
+
+### 7.4 KPI
+- [ ] §17.1 수치 확정 후 주간 리포트 자동화.
+
+---
+
+## Phase 8+ — 장기 (스펙 §18·§15)
+
+- 매장 캡처 키트, ArUco, LiDAR 메타, XRF API, 주얼리 세그 모델 등 — 별도 에픽으로 쪼갬.
+
+---
+
+## 우선순위·의존성
+
+```
+P0: Phase 0 → 1 → 2 → 3 → 4  (Docker 위 단일 파이프라인)
+P1: Phase 5                    (job·영속성·스케일)
+P2: Phase 6·7                  (UX·운영)
+P3: Phase 8+
+```
+
+**병행 가능**: Phase 6 UI 목업은 Phase 3~4와 병행. Phase 7 골든 세트 수집은 Phase 3부터 일부 착수.
+
+---
+
+## 환경변수 예시 (`.env.example`에 반영)
+
+| 변수 | 용도 |
+|------|------|
+| `REDIS_URL` | 큐 |
+| `MYSQL_URL` | DB |
+| `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET` | MinIO/AWS |
+| `ALGORITHM_VERSION` | 결과 스탬프 |
+| `DEBUG_SAVE_MASKS` | 로컬 디버그 |
+
+---
+
+## 스펙 체크리스트 연동
+
+마일스톤 종료 시 `project-concept.mdc` **§13** 항목을 갱신하고, Docker/배포 변경 시 본 문서 **§1** 도 동기화한다.
+
+---
+
+*이슈 트래킹 시 라벨 예: `phase-0` … `phase-7`, `docker`, `worker`, `api`, `spec-blocker`.*

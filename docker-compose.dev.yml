@@ -1,0 +1,66 @@
+# 로컬 개발: 서버(api/worker) 코드 저장 시 컨테이너 안에서 자동 재시작(재빌드 최소화).
+# 사용 예:
+#   ./scripts/dev-up.sh
+#   # 프론트까지 감시해 이미지 재빌드(Compose 2.23+):
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build --watch
+#
+# 주의: package.json / pyproject.toml 의존성을 바꾼 뒤에는 해당 서비스 이미지를 다시 빌드해야 합니다.
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml build api worker worker-consumer
+
+services:
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.dev
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./api/src:/app/src:delegated
+      - ./api/package.json:/app/package.json:ro
+      - ./api/package-lock.json:/app/package-lock.json:ro
+      - ./api/tsconfig.json:/app/tsconfig.json:ro
+      - ./api/nest-cli.json:/app/nest-cli.json:ro
+    command: ["npm", "run", "start:dev"]
+
+  worker:
+    volumes:
+      - ./worker/app:/app/app:delegated
+      - ./worker/pyproject.toml:/app/pyproject.toml:ro
+    command:
+      [
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--reload",
+        "--reload-dir",
+        "/app/app",
+      ]
+
+  worker-consumer:
+    volumes:
+      - ./worker/app:/app/app:delegated
+      - ./worker/pyproject.toml:/app/pyproject.toml:ro
+    working_dir: /app
+    command:
+      [
+        "watchfiles",
+        "--filter",
+        "python",
+        "python -m app.consumer",
+        "/app/app",
+      ]
+
+  web:
+    develop:
+      watch:
+        - path: ./web/src
+          action: rebuild
+        - path: ./web/index.html
+          action: rebuild
+        - path: ./web/package.json
+          action: rebuild
+        - path: ./web/vite.config.ts
+          action: rebuild

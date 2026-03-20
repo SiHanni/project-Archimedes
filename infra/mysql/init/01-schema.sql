@@ -1,7 +1,7 @@
 -- Archimedes job store (Phase 5)
 CREATE TABLE IF NOT EXISTS jobs (
   id CHAR(36) NOT NULL PRIMARY KEY,
-  status ENUM('pending', 'processing', 'completed', 'failed') NOT NULL DEFAULT 'pending',
+  status ENUM('pending', 'processing', 'completed', 'completed_low_confidence', 'failed') NOT NULL DEFAULT 'pending',
   algorithm_version VARCHAR(64) NULL,
   input_json JSON NOT NULL,
   result_json JSON NULL,

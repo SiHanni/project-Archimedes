@@ -35,6 +35,8 @@ def _check_sigma_consistency(sigmas: dict[str, float], ratio: float, settings: S
                 "ERR_SCALE_MISMATCH",
                 f"sigma view {v}={s:.5f} vs median {med:.5f}",
                 retry_step=v,
+                error_severity="soft",
+                suggested_action="retry_one_view",
             )
 
 
@@ -155,6 +157,16 @@ def run_pipeline(
             "형태(귀걸이/반지 등)와 촬영에 맞게 `constants.py` Hollow·layout 계수를 실측으로 조정하세요."
         )
 
+    degraded_reasons: list[str] = []
+    if fallback_views:
+        degraded_reasons.extend([f"card_fallback:{v}" for v in fallback_views])
+    if implausible_mass:
+        degraded_reasons.append("implausible_mass")
+    if vol_est.multires_penalty:
+        degraded_reasons.append("multires_penalty")
+
+    retry_views = sorted(set(fallback_views))[:2]
+
     result = JobResult(
         algorithm_version=settings.algorithm_version,
         V_hull_mm3=round(vol_est.V_hull_mm3, 4),
@@ -164,6 +176,12 @@ def run_pipeline(
         confidence_pct=round(pct, 2),
         mass_range=mass_range_out,
         meta={
+            "workflow": {
+                "error_severity": "soft" if tier == "low" else "none",
+                "suggested_action": "retry_one_view" if retry_views else "continue_low_confidence",
+                "retry_views": retry_views,
+                "degraded_reasons": degraded_reasons,
+            },
             "segmentation": {"per_view_placement": placement_by_view},
             "hollow": {
                 "alpha_k": alpha_k,

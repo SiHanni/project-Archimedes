@@ -41,10 +41,31 @@ def mark_completed(conn, job_id: str, result: dict) -> None:
     conn.commit()
 
 
-def mark_failed(conn, job_id: str, code: str, message: str) -> None:
+def mark_completed_low_confidence(
+    conn,
+    job_id: str,
+    result: dict | None,
+    code: str,
+    message: str,
+) -> None:
     with conn.cursor() as cur:
         cur.execute(
-            "UPDATE jobs SET status='failed', error_code=%s, error_message=%s WHERE id=%s",
-            (code, message, job_id),
+            "UPDATE jobs SET status='completed_low_confidence', result_json=%s, error_code=%s, error_message=%s WHERE id=%s",
+            (json.dumps(result) if result else None, code, message, job_id),
+        )
+    conn.commit()
+
+
+def mark_failed(
+    conn,
+    job_id: str,
+    code: str,
+    message: str,
+    error_payload: dict[str, Any] | None = None,
+) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE jobs SET status='failed', error_code=%s, error_message=%s, result_json=%s WHERE id=%s",
+            (code, message, json.dumps(error_payload) if error_payload else None, job_id),
         )
     conn.commit()

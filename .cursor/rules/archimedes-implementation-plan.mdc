@@ -16,6 +16,8 @@ alwaysApply: true
 ## 0. 원칙·범위
 
 - **v1 목표**: 5뷰 → 품질 게이트 → 카드 스케일 → 세그 → **Archimedes-G1** 복셀 카빙 → Hollow → \(\rho\) → `mass_est` + `confidence_tier` (+ 가능 시 `mass_range`).
+- **OS·카메라 비특정 (스펙 §1.8)**: **어떤 단말·브라우저·카메라 앱**으로도 “지금보다” **완료율과 재시도 UX**가 나아지는 방향으로 간다. LiDAR/특정 제조사만 있다고 가정한 기능은 **핵심 경로에 넣지 않는다**. 보조 센서·EXIF는 **있으면 보너스**, 없으면 동일 동작.
+- **촬영 허들 완화 (제품·구현 공통 목표)**: “완벽 촬영”을 요구하기보다 **문제 뷰만 재요청**·**완화 모드(낮은 tier·금액 게이팅·범위 표시)**·**세그/카드 검출 강건성**으로 **하드 `ERR_*` 빈도**를 줄이는 과제를 파이프라인 검증과 **병행**한다 (`project-concept.mdc` §14.1·§14.2·§15.2).
 - **우선순위 (제품·기술)**: 당분간 **이미지 입력으로 부피·중량(파이프라인) 추정이 맞는지 검증**하는 것이 **네이티브 앱 인앱 촬영보다 앞선다**. 따라서 **지금 단계의 클라이언트는 웹 서비스**로 정한다 — 사용자가 **정면·상·좌·우·후면 등 각도에 맞게 준비한 사진 파일을 업로드**하면 된다. **네이티브 iOS/Android에서 직접 카메라로 찍는 플로우**는 파이프라인·품질이 검증된 뒤 **후속**으로 둔다 (스펙 `project-concept.mdc` §1.6과 동일 취지).
 - **Docker**: 로컬·스테이징·프로덕션 파이프라인의 **기준 런타임**이다. 앱·DB·큐·오브젝트 스토리지는 **컨테이너로 일관**시킨다 (아래 §1).
 - **Precision / LiDAR / XRF / 매장 키트** → v1.5~v2 (스펙 §3, §14.2, §18).
@@ -158,6 +160,7 @@ project-Archimedes/
 - [ ] Laplacian variance < T → `ERR_BLUR` (T는 `constants` + 추후 튜닝).
 - [ ] 과노출/과소노출 휴리스틱(히스토그램) → `ERR_EXPOSURE`.
 - [ ] 에러 응답 JSON: `code`, `message`, `retry_step` (뷰 인덱스).
+- [ ] **완화 가능 플래그** 추가: `is_hard_fail`(bool), `suggested_action`(`retry_one_view` | `continue_low_confidence`)를 결과 메타에 넣어, UI가 “즉시 중단”과 “저신뢰로 계속”을 구분할 수 있게 한다.
 
 ### 1.4 카드 선검출 (게이트만)
 - [ ] 카드 미검출 시 즉시 실패하지 말고 Phase 2에서 통합해도 됨 — 단, **스펙상** 5뷰 카드 권장이므로 v1에서는 **뷰별 카드 필수**로 실패 처리 권장 → `ERR_CARD_NOT_FOUND`, `retry_step`.
@@ -166,6 +169,14 @@ project-Archimedes/
 - [ ] 5개 \(\sigma_i\) 수집 후 중앙값 대비 ±8% 초과 뷰 → `ERR_SCALE_MISMATCH` + 해당 뷰 재촬영 안내.
 
 **Phase 1 완료 기준**: 고의로 나쁜 이미지 넣었을 때 위 에러 코드가 안정적으로 반환.
+
+### 1.6 하드 실패 최소화 정책 (운영 규칙)
+- [ ] `ERR_*` 분류표 작성: **hard**(안전·계약상 필수 거절) vs **soft**(저신뢰 결과 허용 가능).
+- [ ] v1 기본 매핑 예시:
+  - `ERR_CARD_NOT_FOUND`, `ERR_RESOLUTION`: hard
+  - `ERR_BLUR`, `ERR_EXPOSURE`, `ERR_SCALE_MISMATCH`: 기본 soft(티어 강등 + 재촬영 권고)
+  - `ERR_SILHOUETTE_AREA`, `ERR_JEWEL_ON_CARD`: 조건부 soft(대안 마스크/완화 모드 없으면 hard)
+- [ ] API 응답/잡 결과에 `error_severity`(`hard`|`soft`)와 `retry_views[]`를 포함.
 
 ---
 
@@ -180,6 +191,8 @@ project-Archimedes/
 - [ ] 전경 마스크 파이프라인 v0 (색 임계값 또는 rembg).
 - [ ] `dilate(P_card, r)` 후 `jewel = fg - card_region`.
 - [ ] 면적 비율 게이트: 너무 작음/큼 → `ERR_SILHOUETTE_AREA`.
+- [ ] **대안 경로 2개 이상** 유지(예: `subtract_card`, `on_card_inner`/dark-fallback) 후, 단일 실패 대신 후보 스코어 기반 선택.
+- [ ] 후보별 메타 저장: `seg_mode`, `mask_frac`, `card_overlap_frac`, `quality_score`.
 
 ### 2.3 전처리
 - [ ] CLAHE 제한적 적용(파라미터 상수화).
@@ -187,11 +200,21 @@ project-Archimedes/
 
 ### 2.4 디버그
 - [ ] 환경변수 `DEBUG_SAVE_MASKS=1` 시 `/output` 볼륨에 마스크 PNG 저장 (Docker 볼륨 마운트).
+- [ ] 실패/저신뢰 시 원본 + 카드영역 + 후보마스크 오버레이를 함께 저장해 재현 가능한 QA 샘플 자동 수집.
 
 ### 2.5 (기술 부채 티켓)
 - [ ] 주얼리 특화 세그 모델 학습·ONNX 배포 일정 §15.2에 링크.
 
 **Phase 2 완료 기준**: 실제/테스트 5뷰에서 이진 마스크 5장 산출 + 시각 검수 가능.
+
+### 2.6 워커 완화 로직 구현 체크리스트 (ERR 줄이기)
+- [ ] 뷰 단위 품질 점수 `q_view` 산출(카드검출 신뢰, 블러, 노출, 세그 일관성).
+- [ ] 전체 잡 품질 점수 `q_job` 집계(최솟값 + 분산 패널티).
+- [ ] 실패 전 마지막 단계에서 “완화 모드 후보” 평가:
+  - [ ] low-tier 결과를 생성할 수 있으면 `status=completed_low_confidence`로 반환
+  - [ ] 불가하면 `status=failed` + `retry_views` 명시
+- [ ] `retry_views` 산출 규칙: 문제 뷰만 재촬영하도록 최대 1~2뷰만 지정(전체 5장 재업로드 지양).
+- [ ] 결과 메타에 `degraded_reasons[]`(예: `blur_front`, `scale_mismatch_left`)를 넣어 UI 문구와 1:1 연결.
 
 ---
 
@@ -272,10 +295,21 @@ project-Archimedes/
 
 ### 6.1 온보딩
 - [ ] §9.1 분기 UI, 촬영 체크리스트(카드 동일 평면, 거리, 저울 금지).
+- [ ] “완벽 촬영” 문구 대신 **최소 요건 3개**만 노출(카드 보이기, 물체-카드 분리, 흔들림 줄이기).
+- [ ] 예시 썸네일(좋은/나쁜 예 1쌍) 추가 — 텍스트 지시만 두지 않는다.
 
 ### 6.2 결과 화면
 - [ ] `mass_est`, `mass_range`, `confidence_pct`, `confidence_tier`, 면책 문구.
 - [ ] tier `low` 시 시세·원화 숨김(§14.1).
+- [ ] `retry_views`가 있으면 **문제 슬롯만** 강조(빨간 테두리/재촬영 버튼)하고 나머지 뷰는 재사용.
+- [ ] `degraded_reasons[]`를 사용자 문구로 매핑(기술 코드 직접 노출 금지).
+- [ ] `completed_low_confidence` 상태 추가: 값은 보여주되 금액/결정 유도 CTA는 숨김.
+
+### 6.4 업로드/재시도 UX 상세
+- [ ] 슬롯별 상태머신: `empty` → `uploaded` → `analyzing` → `needs_retry` → `ok`.
+- [ ] 재촬영 플로우: `needs_retry` 슬롯만 교체 업로드 가능(전체 초기화 금지).
+- [ ] 자동 진단 배너: “다시 5장” 대신 “`front`만 다시 촬영해 주세요” 식의 1줄 액션.
+- [ ] 모바일 우선 상호작용: 큰 CTA, 진행률, 실패 시 다음 행동 1개만 제시.
 
 ### 6.3 법무
 - [ ] 약관·개인정보 처리방침 초안(보관 기간 §17).
@@ -295,6 +329,11 @@ project-Archimedes/
 
 ### 7.4 KPI
 - [ ] §17.1 수치 확정 후 주간 리포트 자동화.
+- [ ] **촬영 허들 KPI** 추가:
+  - [ ] 업로드 시작→완료 전환율
+  - [ ] 평균 재업로드 뷰 수(목표: 5장 재업로드 비율 지속 감소)
+  - [ ] hard fail 비율 vs soft degrade 비율
+  - [ ] 기기/OS별 완료율 편차(특정 플랫폼 의존 감시)
 
 ---
 

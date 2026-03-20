@@ -112,15 +112,43 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         return null;
       }
     };
+    const parsedResult = parseJson(r.result_json);
+    const resultObj = parsedResult as Record<string, unknown> | null;
+    const nestedErr =
+      resultObj && typeof resultObj === 'object' && resultObj.error && typeof resultObj.error === 'object'
+        ? (resultObj.error as Record<string, unknown>)
+        : null;
+    const retryViews =
+      nestedErr && Array.isArray(nestedErr.retry_views)
+        ? (nestedErr.retry_views.filter((x) => typeof x === 'string') as string[])
+        : [];
+    const retryStep = typeof nestedErr?.retry_step === 'string' ? nestedErr.retry_step : null;
+    const errorSeverity =
+      nestedErr?.error_severity === 'soft' || nestedErr?.error_severity === 'hard'
+        ? (nestedErr.error_severity as 'soft' | 'hard')
+        : 'hard';
+    const suggestedAction =
+      typeof nestedErr?.suggested_action === 'string'
+        ? nestedErr.suggested_action
+        : retryViews.length || retryStep
+          ? 'retry_one_view'
+          : null;
+    const mergedRetryViews = retryViews.length ? retryViews : retryStep ? [retryStep] : [];
     return {
       id: r.id,
       status: r.status,
       algorithmVersion: r.algorithm_version,
       input: parseJson(r.input_json),
-      result: parseJson(r.result_json),
+      result: parsedResult,
       error:
         r.error_code != null
-          ? { code: r.error_code, message: r.error_message }
+          ? {
+              code: r.error_code,
+              message: r.error_message,
+              retryViews: mergedRetryViews,
+              errorSeverity,
+              suggestedAction,
+            }
           : null,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
@@ -130,7 +158,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   async upsertMassFeedback(jobId: string, actualMassG: number, notes: string | null) {
     const row = await this.getById(jobId);
     if (!row) throw new NotFoundException('Job not found');
-    if (row.status !== 'completed') {
+    if (row.status !== 'completed' && row.status !== 'completed_low_confidence') {
       throw new BadRequestException('Job must be completed before feedback');
     }
     const res = row.result as { mass_est_g?: number } | null;

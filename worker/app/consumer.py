@@ -50,7 +50,28 @@ def process_one(job_id: str) -> None:
         log.info("job %s completed", job_id)
     except PipelineError as pe:
         log.warning("job %s pipeline error %s", job_id, pe.code)
-        jobs_db.mark_failed(conn, job_id, pe.code, str(pe))
+        payload = {
+            "error": {
+                "code": pe.code,
+                "message": str(pe),
+                "retry_step": pe.retry_step,
+                "retry_views": pe.retry_views,
+                "error_severity": pe.error_severity,
+                "suggested_action": pe.suggested_action or "retry_one_view",
+            },
+            "meta": {
+                "workflow": {
+                    "error_severity": pe.error_severity,
+                    "suggested_action": pe.suggested_action or "retry_one_view",
+                    "retry_views": pe.retry_views,
+                },
+                "degraded_reasons": [f"{pe.code}:{v}" for v in pe.retry_views] or [pe.code],
+            },
+        }
+        if pe.error_severity == "soft":
+            jobs_db.mark_completed_low_confidence(conn, job_id, payload, pe.code, str(pe))
+        else:
+            jobs_db.mark_failed(conn, job_id, pe.code, str(pe), payload)
     except Exception:  # noqa: BLE001
         log.exception("job %s failed", job_id)
         jobs_db.mark_failed(conn, job_id, "ERR_INTERNAL", traceback.format_exc()[:2000])

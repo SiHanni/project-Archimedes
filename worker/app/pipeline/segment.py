@@ -18,6 +18,17 @@ def _jewel_area_frac(jewel: np.ndarray, h: int, w: int) -> float:
     return int((jewel > 0).sum()) / float(h * w)
 
 
+def _mask_centroid_in_region(mask: np.ndarray, region: np.ndarray, min_pixels: int = 12) -> bool:
+    """True if median pixel of mask lies inside region (>0). Used to break subtract vs on-card ties."""
+    ys, xs = np.where(mask > 0)
+    if len(xs) < min_pixels:
+        return False
+    cy, cx = int(np.median(ys)), int(np.median(xs))
+    if 0 <= cy < region.shape[0] and 0 <= cx < region.shape[1]:
+        return bool(region[cy, cx] > 0)
+    return False
+
+
 def _morph_clean(jewel: np.ndarray, open_k: int, close_k: int) -> np.ndarray:
     jewel = cv2.morphologyEx(jewel, cv2.MORPH_OPEN, np.ones((open_k, open_k), np.uint8))
     jewel = cv2.morphologyEx(jewel, cv2.MORPH_CLOSE, np.ones((close_k, close_k), np.uint8))
@@ -48,12 +59,16 @@ def _validate_jewel_area(jewel: np.ndarray, h: int, w: int, view: str) -> None:
             "ERR_SILHOUETTE_AREA",
             f"Jewel mask too small ({frac:.4f} of frame)",
             retry_step=view,
+            error_severity="soft",
+            suggested_action="retry_one_view",
         )
     if frac > JEWEL_AREA_FRAC_MAX:
         raise PipelineError(
             "ERR_SILHOUETTE_AREA",
             f"Jewel mask too large ({frac:.4f} of frame)",
             retry_step=view,
+            error_severity="soft",
+            suggested_action="retry_one_view",
         )
 
 
@@ -125,9 +140,22 @@ def _jewel_mask_heuristic(bgr: np.ndarray, card: CardGeometry, view: str) -> tup
     ]
     valid = [(n, jm, fr) for n, jm, fr in candidates if JEWEL_AREA_FRAC_MIN <= fr <= JEWEL_AREA_FRAC_MAX]
     if valid:
-        # 둘 다 유효하면 프레임 대비 더 작은 마스크 선호(배경 과포함 완화)
-        valid.sort(key=lambda x: x[2])
-        name, jm, fr = valid[0]
+        by_name = {n: (n, jm, fr) for n, jm, fr in valid}
+        # 둘 다 유효할 때: 카드 옆 배치(§4)인데 카드 면 그림자·반사가 on_card_inner 로 작게 잡히면
+        # "더 작은 마스크" 규칙만 쓰면 on_card_inner 가 승리해 ERR_JEWEL_ON_CARD 가 난다.
+        # subtract 마스크의 중심(중앙값 픽셀)이 카드 inner 밖이면 실물은 옆에 둔 경우가 많다.
+        if "subtract_card" in by_name and "on_card_inner" in by_name:
+            n_sub, jm_sub, f_sub = by_name["subtract_card"]
+            n_on, jm_on, f_on = by_name["on_card_inner"]
+            if not _mask_centroid_in_region(jm_sub, inner):
+                name, jm, fr = n_sub, jm_sub, f_sub
+            else:
+                # subtract의 주질량이 카드 면 위로 겹쳐 보이면(원근/배치) 기존처럼 더 작은 쪽
+                valid.sort(key=lambda x: x[2])
+                name, jm, fr = valid[0]
+        else:
+            valid.sort(key=lambda x: x[2])
+            name, jm, fr = valid[0]
         log.info("jewel mask mode=%s frac=%.5f view=%s", name, fr, view)
         _validate_jewel_area(jm, h, w, view)
         return jm, name
@@ -137,6 +165,8 @@ def _jewel_mask_heuristic(bgr: np.ndarray, card: CardGeometry, view: str) -> tup
         f"Jewel mask invalid (subtract_card frac={f_sub:.4f}, on_card_inner frac={f_on:.4f}). "
         "귀금속은 카드 옆 바닥에 나란히 두는 것을 권장합니다. 카드 위에만 올리면 인식이 불안정할 수 있습니다.",
         retry_step=view,
+        error_severity="soft",
+        suggested_action="retry_one_view",
     )
 
 
@@ -191,6 +221,8 @@ def build_jewel_mask(
             "**카드 옆**에 나란히 두고 다시 촬영해 주세요. 카드 위에 두면 카드 무늬·그림자가 "
             "함께 잡혀 실루엣이 비정상적으로 커지고, 무게가 수십~수백 g처럼 잘못 나올 수 있습니다.",
             retry_step=view,
+            error_severity="soft",
+            suggested_action="retry_one_view",
         )
 
     if settings.debug_save_masks and os.path.isdir(settings.worker_output_dir):

@@ -1,0 +1,10 @@
+# 로컬 개발 전용: nest start --watch (docker-compose.dev.yml)
+FROM node:20-bookworm-slim
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY tsconfig.json nest-cli.json ./
+COPY src ./src
+ENV NODE_ENV=development
+EXPOSE 3000
+CMD ["npm", "run", "start:dev"]

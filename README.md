@@ -30,7 +30,31 @@ docker compose up --build
 
 업로드 후 **worker-consumer** 로그에서 job 처리 여부를 확인합니다.
 
-### 코드 수정 후 빠른 재빌드 (worker / consumer / web)
+### 로컬 개발: 서버 코드 저장 시 자동 반영 (재빌드 최소)
+
+`api/` · `worker/app/` 를 수정할 때마다 이미지를 다시 빌드하지 않도록, 개발용 오버레이를 둘 수 있습니다.
+
+```bash
+./scripts/dev-up.sh
+```
+
+- **API**: `nest start --watch` + `./api/src` 마운트  
+- **worker**: `uvicorn --reload` + `./worker/app` 마운트  
+- **worker-consumer**: `watchfiles` 로 `app` 변경 시 프로세스 재실행  
+
+프론트(`web/`)까지 저장할 때마다 **이미지 재빌드**까지 쓰려면(Docker Compose **2.23+**):
+
+```bash
+./scripts/dev-up.sh --watch
+```
+
+`package.json` / `package-lock.json` / `pyproject.toml` 등 **의존성을 바꾼 뒤**에는 해당 서비스만 다시 빌드하세요.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml build api worker worker-consumer
+```
+
+### 코드 수정 후 통째로 재빌드 (프로덕션 이미지에 가깝게)
 
 ```bash
 bash scripts/docker-rebuild-app.sh

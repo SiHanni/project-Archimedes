@@ -1,7 +1,7 @@
-const prefix = '/api';
+const base = (import.meta.env.VITE_API_BASE || '/api').replace(/\/$/, '');
 
 export async function postJob(form: FormData): Promise<{ id: string; status: string }> {
-  const r = await fetch(`${prefix}/jobs`, {
+  const r = await fetch(`${base}/jobs`, {
     method: 'POST',
     body: form,
   });
@@ -13,7 +13,7 @@ export async function postJob(form: FormData): Promise<{ id: string; status: str
 }
 
 export async function getJob(id: string): Promise<JobDto> {
-  const r = await fetch(`${prefix}/jobs/${id}`);
+  const r = await fetch(`${base}/jobs/${id}`);
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
@@ -27,6 +27,13 @@ export type JobSanityMeta = {
   raw_mass_est_g?: number;
 };
 
+export type JobWorkflowMeta = {
+  error_severity?: 'none' | 'soft' | 'hard';
+  suggested_action?: 'retry_one_view' | 'continue_low_confidence' | string;
+  retry_views?: string[];
+  degraded_reasons?: string[];
+};
+
 export type JobDto = {
   id: string;
   status: string;
@@ -38,7 +45,13 @@ export type JobDto = {
     V_hull_mm3: number;
     V_adj_mm3: number;
     algorithm_version: string;
-    meta?: { sanity?: JobSanityMeta };
+    meta?: { sanity?: JobSanityMeta; workflow?: JobWorkflowMeta };
   } | null;
-  error: { code: string; message: string } | null;
+  error: {
+    code: string;
+    message: string;
+    retryViews?: string[];
+    errorSeverity?: 'soft' | 'hard';
+    suggestedAction?: string | null;
+  } | null;
 };

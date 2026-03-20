@@ -30,6 +30,9 @@ alwaysApply: false
 docker compose up --build
 ```
 
+- Worker·큐·웹만 자주 고칠 때: 저장소 루트에서 `bash scripts/docker-rebuild-app.sh` (이미지 재빌드 + 해당 서비스만 `up -d`).
+- `ARCHIMEDES_REJECT_ON_CARD_INNER=1`(기본): 귀금속이 카드 **면 위**로 세그되면 `ERR_JEWEL_ON_CARD` 로 거절 — 카드 옆 바닥 배치(§4) 준수 유도.
+
 - **첫 기동** 시 MySQL 초기화·MinIO 버킷 생성(`minio-init`)이 끝난 뒤 `worker` / `worker-consumer` / `api` 가 순서대로 올라갑니다.
 - **`.env` 파일은 필수 아님**: `docker-compose.yml`의 `x-app-db` 앵커에 로컬 개발용 기본값이 들어 있습니다. 호스트에서 Worker만 돌리거나 비밀번호를 바꿀 때는 `.env.example`을 복사해 조정합니다.
 
@@ -39,21 +42,23 @@ cp .env.example .env   # 선택
 
 ### 2.2 서비스·URL·포트
 
+호스트 포트는 **로컬에서 자주 쓰는 기본 포트(3306·6379·3000 등)와 겹치지 않게** `docker-compose.yml`에서 분리해 두었습니다. 컨테이너 간 통신은 서비스명·내부 포트 그대로입니다.
+
 | 서비스 | 컨테이너 | 호스트 URL | 비고 |
 |--------|----------|------------|------|
-| **web** | nginx + 정적 빌드 | http://localhost:5173 | `/api/*` → API로 리버스 프록시 |
-| **api** | NestJS | http://localhost:3000 | API 베이스: `/v1` |
-| **worker** | FastAPI (uvicorn) | http://localhost:8000 | `/health`, `/v1/meta` |
+| **web** | nginx + 정적 빌드 | http://localhost:25173 | `/api/*` → API로 리버스 프록시 |
+| **api** | NestJS | http://localhost:23000 | API 베이스: `/v1` |
+| **worker** | FastAPI (uvicorn) | http://localhost:28000 | `/health`, `/v1/meta` |
 | **worker-consumer** | Python 큐 소비 | (포트 없음) | `docker compose logs -f worker-consumer` 로 확인 |
-| **mysql** | 8.0 | localhost:3306 | DB `archimedes` / 유저 동명 |
-| **redis** | 7 | localhost:6379 | 큐 `archimedes:queue` (기본) |
-| **minio** | S3 호환 | API :9000, 콘솔 :9001 | 계정 `minioadmin` / `minioadmin` |
+| **mysql** | 8.0 | localhost:23306 | DB `archimedes` / 유저 동명 |
+| **redis** | 7 | localhost:26379 | 큐 `archimedes:queue` (기본) |
+| **minio** | S3 호환 | API :29000, 콘솔 :29001 | 계정 `minioadmin` / `minioadmin` |
 
 ### 2.3 정상 동작 확인 절차
 
-1. 브라우저에서 http://localhost:5173 → 온보딩·5슬롯 업로드 UI.
-2. 터미널: `curl -s http://localhost:8000/health` → `{"status":"ok"}`.
-3. 터미널: `curl -s http://localhost:3000/v1/legal/terms` → JSON 약관 초안.
+1. 브라우저에서 http://localhost:25173 → 온보딩·5슬롯 업로드 UI.
+2. 터미널: `curl -s http://localhost:28000/health` → `{"status":"ok"}`.
+3. 터미널: `curl -s http://localhost:23000/v1/legal/terms` → JSON 약관 초안.
 4. 웹에서 **각도별 서로 다른 사진** 5장 업로드 후 분석 요청 → `worker-consumer` 로그에 job 완료/실패.
 
 ### 2.4 중지·정리
@@ -80,15 +85,15 @@ docker compose down -v
 docker compose up -d mysql redis minio minio-init
 ```
 
-MinIO 콘솔에서 버킷이 없다면 `minio-init` 로그를 확인합니다.
+MinIO 콘솔(`http://localhost:29001`)에서 버킷이 없다면 `minio-init` 로그를 확인합니다.
 
 ### 3.2 API
 
 ```bash
 cd api
-export MYSQL_HOST=127.0.0.1 MYSQL_USER=archimedes MYSQL_PASSWORD=archimedes MYSQL_DATABASE=archimedes
-export REDIS_URL=redis://127.0.0.1:6379
-export S3_ENDPOINT=http://127.0.0.1:9000 S3_ACCESS_KEY=minioadmin S3_SECRET_KEY=minioadmin
+export MYSQL_HOST=127.0.0.1 MYSQL_PORT=23306 MYSQL_USER=archimedes MYSQL_PASSWORD=archimedes MYSQL_DATABASE=archimedes
+export REDIS_URL=redis://127.0.0.1:26379
+export S3_ENDPOINT=http://127.0.0.1:29000 S3_ACCESS_KEY=minioadmin S3_SECRET_KEY=minioadmin
 export PORT=3000
 npm install && npm run start:dev
 ```
@@ -100,7 +105,7 @@ cd web
 npm install && npm run dev
 ```
 
-`vite.config.ts`가 `/api` → `http://localhost:3000/v1` 로 프록시합니다.
+`vite.config.ts`가 `/api` → `http://localhost:3000/v1` 로 프록시합니다(로컬에서 API를 `PORT=3000`으로 띄울 때). **Docker로 API만 쓰는 경우**는 `http://localhost:23000/v1` 로 맞춰 주세요.
 
 ### 3.4 Worker (헬스 + 테스트)
 
@@ -108,7 +113,7 @@ npm install && npm run dev
 cd worker
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-export MYSQL_HOST=127.0.0.1 REDIS_URL=redis://127.0.0.1:6379 S3_ENDPOINT=http://127.0.0.1:9000
+export MYSQL_HOST=127.0.0.1 MYSQL_PORT=23306 REDIS_URL=redis://127.0.0.1:26379 S3_ENDPOINT=http://127.0.0.1:29000
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -151,6 +156,8 @@ pytest -m slow            # OpenCV 합성 1뷰 체인
 | `ERR_CARD_NOT_FOUND` / `ERR_BLUR` | 카드 미포함·해상도·초점. 스펙 §4·§8에 맞게 재촬영. |
 | `ParseUUIDPipe` 400 | `GET /v1/jobs/:id` 의 id는 **UUID v4** 형식이어야 함. |
 | API 400 (이미지 타입) | `image/jpeg`, `image/png`, `image/webp` 만 허용. |
+| **413 Request Entity Too Large** (nginx) | 프론트 nginx `client_max_body_size` 미만 또는 이미지가 너무 큼. `web/nginx.conf`의 `client_max_body_size` 확인; API는 파일당 `MAX_UPLOAD_BYTES`(jobs 컨트롤러) 제한. |
+| 비현실적 무게·카드 폴백 | Worker `meta.sanity`: 제품별·`ARCHIMEDES_SANITY_MAX_MASS_G` 상한 초과 시 `suppress_mass_display`, 일부 뷰 카드 폴백 시 경고·신뢰도 하한. |
 | 실측 피드백 | `POST /v1/jobs/{uuid}/feedback` JSON `{"actualMassG": number, "notes?": string}` — job이 `completed` 일 때만. 캘리브 제안: `docker compose exec worker python scripts/calibration_suggest.py` |
 | 골든 회귀 | `ARCHIMEDES_GOLDEN_ROOT` 에 `manifest.json` + 이미지 후 `pytest -m golden_manifest` (`golden/README.md`) |
 | MySQL connection refused | Compose 헬스 대기 전에 API/워커가 뜬 경우 드묾 — 재시작. |

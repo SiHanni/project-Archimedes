@@ -66,8 +66,16 @@ export function HomePage() {
     }
   };
 
+  /** 서버 meta 없이 올라온 구버전/비정상 JSON 대비 — 일반 귀금속에서 거의 안 나오는 무게는 숫자 숨김 */
+  const CLIENT_ABSURD_MASS_G = 350;
+
   const tier = job?.result?.confidence_tier;
   const hideQuote = tier === 'low';
+  const sanity = job?.result?.meta?.sanity;
+  const massG = job?.result?.mass_est_g;
+  const hideMass =
+    Boolean(sanity?.suppress_mass_display) ||
+    (typeof massG === 'number' && massG > CLIENT_ABSURD_MASS_G);
 
   return (
     <div>
@@ -93,6 +101,10 @@ export function HomePage() {
           <h2>촬영·업로드 전 체크</h2>
           <ul style={{ color: '#334155' }}>
             <li>신용카드와 귀금속을 <strong>같은 바닥 면</strong>에 둡니다.</li>
+            <li>
+              <strong>카드 위에 올리지 마세요.</strong> 카드 옆에 나란히 두세요. (카드 위에 두면 분석이 크게 어긋날 수
+              있습니다.)
+            </li>
             <li>저울 위에 올린 상태로 찍지 않습니다.</li>
             <li>각도별로 <strong>파일을 준비</strong>해 업로드합니다 (인앱 카메라 v1 제외).</li>
           </ul>
@@ -155,9 +167,14 @@ export function HomePage() {
                 <option value="chain">체인</option>
                 <option value="bracelet">팔찌</option>
                 <option value="pendant">펜던트</option>
+                <option value="earring">귀걸이</option>
                 <option value="other">기타</option>
               </select>
             </label>
+            <p style={{ fontSize: '0.82rem', color: '#64748b', margin: 0 }}>
+              귀걸이는 반드시 <strong>귀걸이</strong>로 선택하세요. (일반 금 귀걸이는 흔히 <strong>약 3–5g</strong> 전후입니다.) 다른 형태로 고르면
+              보정이 맞지 않아 수치가 크게 어긋날 수 있어요.
+            </p>
           </div>
           <button type="button" disabled={busy} onClick={() => void submit()}>
             {busy ? '처리 중…' : '분석 요청'}
@@ -180,15 +197,44 @@ export function HomePage() {
           )}
           {job.result && (
             <>
-              <p>추정 무게: <strong>{job.result.mass_est_g.toFixed(3)} g</strong></p>
+              {hideMass ? (
+                <p style={{ color: '#b45309' }}>
+                  추정 무게가 <strong>비현실적으로 크게</strong> 나와 숫자는 표시하지 않습니다.
+                  카드 옆 바닥에 나란히 두고(카드 위 X), 귀금속이 선명히 보이게 다시 촬영해 주세요.
+                  {sanity?.sanity_mass_cap_g != null && (
+                    <span> (서버 참고 상한 약 {sanity.sanity_mass_cap_g} g)</span>
+                  )}
+                  {!sanity?.suppress_mass_display && typeof massG === 'number' && (
+                    <span style={{ display: 'block', marginTop: '0.35rem', fontSize: '0.85rem' }}>
+                      (내부 추정값이 비정상적으로 큽니다. 앱·워커를 최신으로 올렸는지도 확인해 주세요.)
+                    </span>
+                  )}
+                </p>
+              ) : (
+                <p>
+                  추정 무게: <strong>{job.result.mass_est_g.toFixed(3)} g</strong>
+                </p>
+              )}
               <p>신뢰도 등급: {job.result.confidence_tier} ({job.result.confidence_pct}%)</p>
-              {job.result.mass_range && (
+              {!hideMass && job.result.mass_range && (
                 <p>
                   범위: {job.result.mass_range.min_g.toFixed(2)} ~ {job.result.mass_range.max_g.toFixed(2)} g
                 </p>
               )}
+              {sanity?.warnings && sanity.warnings.length > 0 && (
+                <ul style={{ color: '#92400e', fontSize: '0.9rem', marginTop: '0.5rem' }}>
+                  {sanity.warnings.map((w, i) => (
+                    <li key={i}>{w}</li>
+                  ))}
+                </ul>
+              )}
               <p style={{ fontSize: '0.85rem', color: '#64748b' }}>
-                V_hull={job.result.V_hull_mm3} mm³, V_adj={job.result.V_adj_mm3} mm³, {job.result.algorithm_version}
+                {!hideMass && (
+                  <>
+                    V_hull={job.result.V_hull_mm3} mm³, V_adj={job.result.V_adj_mm3} mm³,{' '}
+                  </>
+                )}
+                {job.result.algorithm_version}
               </p>
               {hideQuote ? (
                 <p style={{ marginTop: '0.75rem', color: '#92400e' }}>

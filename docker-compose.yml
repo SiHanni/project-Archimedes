@@ -21,7 +21,8 @@ services:
       MYSQL_PASSWORD: archimedes
       MYSQL_ROOT_PASSWORD: rootsecret
     ports:
-      - "3306:3306"
+      # 호스트 포트: 로컬 기본 MySQL(3306) 등과 겹침 방지
+      - "23306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
       - ./infra/mysql/init:/docker-entrypoint-initdb.d:ro
@@ -35,7 +36,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "26379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 3s
@@ -49,8 +50,8 @@ services:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "29000:9000"
+      - "29001:9001"
     volumes:
       - minio_data:/data
 
@@ -80,7 +81,7 @@ services:
       minio-init:
         condition: service_completed_successfully
     ports:
-      - "8000:8000"
+      - "28000:8000"
     volumes:
       - worker_output:/output
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
@@ -125,7 +126,7 @@ services:
       minio-init:
         condition: service_completed_successfully
     ports:
-      - "3000:3000"
+      - "23000:3000"
 
   web:
     build:
@@ -134,7 +135,7 @@ services:
     depends_on:
       - api
     ports:
-      - "5173:80"
+      - "25173:80"
 
 volumes:
   mysql_data:

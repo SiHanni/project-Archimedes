@@ -37,7 +37,7 @@ def test_synthetic_front_view_chain(test_settings: Settings) -> None:
     bgr = bytes_to_bgr(raw)
     check_image_quality(bgr, settings, "front")
     card = compute_card_geometry(bgr, "front")
-    mask = build_jewel_mask(bgr, card, settings, "front", job_id="t1")
+    mask, _ = build_jewel_mask(bgr, card, settings, "front", job_id="t1")
     u0, u1, v0, v1 = jewel_bbox_uv_mm(mask, card, "front")
     assert u1 > u0 and v1 > v0, (u0, u1, v0, v1)
 
@@ -70,4 +70,5 @@ def test_same_jpeg_five_views_smoke(monkeypatch: pytest.MonkeyPatch) -> None:
             "ERR_SCALE_MISMATCH",
             "ERR_SILHOUETTE_AREA",
             "ERR_CARD_NOT_FOUND",
+            "ERR_JEWEL_ON_CARD",
         )

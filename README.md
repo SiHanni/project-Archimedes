@@ -22,12 +22,21 @@
 docker compose up --build
 ```
 
-- 웹 UI: http://localhost:5173  
-- API: http://localhost:3000/v1  
-- Worker 헬스: http://localhost:8000/health  
-- MinIO 콘솔: http://localhost:9001 (`minioadmin` / `minioadmin`)
+- 웹 UI: http://localhost:25173  
+- API: http://localhost:23000/v1  
+- Worker 헬스: http://localhost:28000/health  
+- MinIO 콘솔: http://localhost:29001 (`minioadmin` / `minioadmin`)  
+- (호스트에서 DB/Redis 직접 접속 시) MySQL `localhost:23306`, Redis `localhost:26379`, MinIO API `localhost:29000`
 
 업로드 후 **worker-consumer** 로그에서 job 처리 여부를 확인합니다.
+
+### 코드 수정 후 빠른 재빌드 (worker / consumer / web)
+
+```bash
+bash scripts/docker-rebuild-app.sh
+```
+
+API·DB·인프라까지 전부 다시 올리려면 `docker compose up --build` 를 쓰면 됩니다.
 
 **중요**: v0 부피 코어는 뷰별 실루엣을 **서로 다른 시선**으로 해석합니다. **동일 사진을 5슬롯에 넣으면** 기하 충돌로 `ERR_VOLUME`이 날 수 있습니다. 데모·테스트 시에는 각도별로 **서로 다른 파일**을 올려 주세요.
 

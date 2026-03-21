@@ -12,6 +12,73 @@ const VIEW_LABEL: Record<(typeof VIEWS)[number], string> = {
 
 type CaptureMode = 'camera' | 'upload';
 
+/** 형태별 촬영 주의 — API `product_k` 와 동일 키 (`worker` constants·스펙 §4·§7 정합) */
+const PRODUCT_SHOOTING_TIPS: Record<string, { title: string; items: string[] }> = {
+  ring: {
+    title: '반지',
+    items: [
+      '반지와 카드를 **같은 바닥 면**에 두고, 링이 세워지지 않게 **눕힌 상태**로 촬영하면 스케일이 안정적입니다.',
+      '속이 비어 있는 링·텅 빈 디자인은 실제 금속 질량과 추정치 차이가 클 수 있습니다.',
+    ],
+  },
+  necklace: {
+    title: '목걸이',
+    items: [
+      '체인을 **최대한 한 줄로 펼쳐**, 고리가 **겹치지 않게** 바닥에 놓고 촬영해 주세요. 뭉치면 실루엣이 한 덩어리로 잡혀 부피·질량 오차가 커질 수 있습니다.',
+      '상단 뷰에서 **카드와 목걸이가 함께** 프레임에 들어오도록 해 주세요.',
+    ],
+  },
+  chain: {
+    title: '체인',
+    items: [
+      '체인을 **펼쳐** 한 줄로, **겹침을 최소화**해 바닥에 놓고 촬영해 주세요.',
+      '일부만 뭉쳐 두면 안 됩니다. 가능한 범위에서 펼쳐 주세요.',
+    ],
+  },
+  bracelet: {
+    title: '팔찌',
+    items: [
+      '얇은 체인형 팔찌는 목걸이와 같이 **펼쳐** 겹침을 줄여 주세요.',
+      '굵은 뱅글형도 카드와 **같은 바닥 면**에 두고, 찌그러지지 않게 촬영해 주세요.',
+    ],
+  },
+  pendant: {
+    title: '펜던트',
+    items: [
+      '펜던트 **본체**와 카드가 **같은 평면(바닥)** 에 놓이게 해 주세요.',
+      '끈·체인은 가능하면 **펼쳐** 겹침을 줄여 주세요.',
+    ],
+  },
+  earring: {
+    title: '귀걸이',
+    items: [
+      '두 짝을 **포개지 않게** 옆으로 나란히 두고 촬영해 주세요. 겹치면 실루엣이 합쳐져 부피가 과대 추정될 수 있습니다.',
+      '카드 **위에 올리지 말고** 카드 옆 바닥에 놓아 주세요.',
+    ],
+  },
+  other: {
+    title: '기타',
+    items: [
+      '귀금속과 신용카드를 **같은 바닥 면**에 두고, 카드 위에 올리지 마세요.',
+      '형태가 복잡하면 가능한 한 **겹침·가림**을 줄여 주세요.',
+    ],
+  },
+};
+
+function ShootingTipLine({ text }: { text: string }) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return (
+    <span>
+      {parts.map((part, i) => {
+        if (part.startsWith('**') && part.endsWith('**')) {
+          return <strong key={i}>{part.slice(2, -2)}</strong>;
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </span>
+  );
+}
+
 export function HomePage() {
   const [step, setStep] = useState<0 | 1 | 2>(0);
   const [knows, setKnows] = useState<'yes' | 'no' | null>(null);
@@ -83,113 +150,80 @@ export function HomePage() {
   return (
     <div>
       {step === 0 && (
-        <section>
-          <h2>귀금속의 무게를 알고 계신가요?</h2>
-          <p style={{ color: '#64748b', fontSize: '0.92rem' }}>
-            저울 위에 올려 찍은 사진은 분석에 맞지 않을 수 있어요. 평평한 곳에 내려놓고 촬영해 주세요. (§9.1)
+        <section className="card card--hero">
+          <h2 className="section-title">귀금속 무게, 알고 계신가요?</h2>
+          <p className="text-muted">
+            저울 위에 올려 찍은 사진은 분석에 맞지 않을 수 있어요. 평평한 곳에 내려놓고 촬영해 주세요.
           </p>
-          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '1rem' }}>
-            <button type="button" onClick={() => { setKnows('no'); setStep(1); }}>아니요 / 잘 모르겠어요</button>
-            <button type="button" onClick={() => { setKnows('yes'); setStep(1); }}>네, 알고 있어요</button>
+          <div className="btn-row">
+            <button type="button" className="btn btn--primary" onClick={() => { setKnows('no'); setStep(1); }}>
+              아니요 / 잘 모르겠어요
+            </button>
+            <button type="button" className="btn btn--secondary" onClick={() => { setKnows('yes'); setStep(1); }}>
+              네, 알고 있어요
+            </button>
           </div>
         </section>
       )}
 
       {step === 1 && (
-        <section>
-          <h2>촬영 전 체크</h2>
-          <ul style={{ color: '#334155' }}>
+        <section className="card">
+          <h2 className="section-title">촬영 전 체크</h2>
+          <ul className="check-list">
             <li>신용카드와 귀금속을 <strong>같은 바닥 면</strong>에 둡니다.</li>
             <li><strong>카드 위에 올리지 마세요.</strong> 카드 옆에 나란히 둡니다.</li>
             <li>저울 위에 올린 상태로 찍지 않습니다.</li>
             <li>정면·상단·좌·우·후면 순서로 촬영합니다.</li>
           </ul>
+          <div className="notice notice--slate">
+            <strong>텅 빈·속 빈 귀금속</strong>처럼 사진만으로 내부 구조를 알 수 없는 경우, 실제 금속 질량과 추정치 차이가 클 수 있습니다.{' '}
+            Archimedes는 이 경우 <strong>정확한 질량을 제공하기 어렵습니다</strong>. 참고용 추정이며, 금은방 등에서 저울로 확정하시기 바랍니다.
+          </div>
           {knows === 'yes' && (
-            <label style={{ display: 'block', marginTop: '1rem' }}>
-              참고 무게 (g, 선택)
+            <div className="field" style={{ marginTop: '1rem' }}>
+              <label htmlFor="refWeight">참고 무게 (g, 선택)</label>
               <input
+                id="refWeight"
                 type="number"
                 step="0.01"
                 value={refWeight}
                 onChange={(e) => setRefWeight(e.target.value)}
-                style={{ display: 'block', marginTop: '0.35rem', width: '100%', maxWidth: 280 }}
               />
-            </label>
+            </div>
           )}
-          <button type="button" style={{ marginTop: '1rem' }} onClick={() => setStep(2)}>다음</button>
+          <div className="btn-row">
+            <button type="button" className="btn btn--primary" onClick={() => setStep(2)}>다음</button>
+          </div>
         </section>
       )}
 
       {step === 2 && (
-        <section>
-          <h2>각도별 촬영/선택</h2>
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
-            <button
-              type="button"
-              onClick={() => setCaptureMode('camera')}
-              style={{ background: captureMode === 'camera' ? '#dbeafe' : undefined }}
-            >
-              카메라로 촬영
-            </button>
-            <button
-              type="button"
-              onClick={() => setCaptureMode('upload')}
-              style={{ background: captureMode === 'upload' ? '#dbeafe' : undefined }}
-            >
-              파일에서 선택
-            </button>
-          </div>
-          <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: 0 }}>
-            {captureMode === 'camera'
-              ? '휴대폰에서는 버튼을 누르면 카메라가 열립니다. 각 각도마다 1장씩 촬영하세요.'
-              : '이미 찍어둔 사진이 있으면 각도별로 선택하세요.'}
+        <section className="card">
+          <h2 className="section-title">각도별 촬영</h2>
+          <p className="text-muted" style={{ marginTop: 0 }}>
+            먼저 형태를 고른 뒤, 아래 <strong>형태별 촬영 주의</strong>를 확인하고 각도별 사진을 준비해 주세요.
           </p>
 
-          <div style={{ display: 'grid', gap: '0.75rem', marginBottom: '1rem' }}>
-            {VIEWS.map((v) => (
-              <label
-                key={v}
-                style={{
-                  display: 'block',
-                  padding: '0.45rem',
-                  borderRadius: 6,
-                  border: retrySet.has(v) ? '1px solid #ef4444' : '1px solid #e5e7eb',
-                  background: retrySet.has(v) ? '#fef2f2' : '#fff',
-                }}
-              >
-                {VIEW_LABEL[v]} {files[v] ? `- ${files[v]!.name}` : ''}
-                {retrySet.has(v) ? ' (재촬영 권장)' : ''}
-                <input
-                  type="file"
-                  accept="image/*"
-                  capture={captureMode === 'camera' ? 'environment' : undefined}
-                  onChange={(e) => onFile(v, e.target.files?.[0])}
-                  style={{ display: 'block', marginTop: '0.25rem' }}
-                />
-              </label>
-            ))}
-          </div>
-
-          <div style={{ display: 'grid', gap: '0.5rem', maxWidth: 320, marginBottom: '1rem' }}>
-            <label>
-              금속
-              <select value={metal} onChange={(e) => setMetal(e.target.value)} style={{ display: 'block', width: '100%' }}>
+          <div className="form-grid" style={{ marginBottom: '1rem' }}>
+            <div className="field">
+              <label htmlFor="metal">금속</label>
+              <select id="metal" value={metal} onChange={(e) => setMetal(e.target.value)}>
                 <option value="gold">금</option>
                 <option value="silver">은</option>
               </select>
-            </label>
-            <label>
-              함량
-              <select value={purity} onChange={(e) => setPurity(e.target.value)} style={{ display: 'block', width: '100%' }}>
+            </div>
+            <div className="field">
+              <label htmlFor="purity">함량</label>
+              <select id="purity" value={purity} onChange={(e) => setPurity(e.target.value)}>
                 <option value="24k">24K</option>
                 <option value="18k">18K</option>
                 <option value="14k">14K</option>
                 <option value="sterling">925</option>
               </select>
-            </label>
-            <label>
-              형태
-              <select value={product} onChange={(e) => setProduct(e.target.value)} style={{ display: 'block', width: '100%' }}>
+            </div>
+            <div className="field">
+              <label htmlFor="product">형태</label>
+              <select id="product" value={product} onChange={(e) => setProduct(e.target.value)}>
                 <option value="ring">반지</option>
                 <option value="necklace">목걸이</option>
                 <option value="chain">체인</option>
@@ -198,62 +232,127 @@ export function HomePage() {
                 <option value="earring">귀걸이</option>
                 <option value="other">기타</option>
               </select>
-            </label>
+            </div>
           </div>
-          <button type="button" disabled={busy} onClick={() => void submit()}>
+
+          {(() => {
+            const tip = PRODUCT_SHOOTING_TIPS[product] ?? PRODUCT_SHOOTING_TIPS.other;
+            return (
+              <div className="notice notice--tips" style={{ marginBottom: '1rem' }}>
+                <p className="notice__title">형태별 촬영 주의 — {tip.title}</p>
+                <ul style={{ margin: 0, paddingLeft: '1.15rem' }}>
+                  {tip.items.map((line, idx) => (
+                    <li key={idx} style={{ marginBottom: '0.35rem' }}>
+                      <ShootingTipLine text={line} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })()}
+
+          <div className="btn-row" style={{ marginBottom: '0.5rem' }}>
+            <button
+              type="button"
+              className={`btn btn--toggle ${captureMode === 'camera' ? 'is-on' : ''}`}
+              onClick={() => setCaptureMode('camera')}
+            >
+              카메라로 촬영
+            </button>
+            <button
+              type="button"
+              className={`btn btn--toggle ${captureMode === 'upload' ? 'is-on' : ''}`}
+              onClick={() => setCaptureMode('upload')}
+            >
+              파일에서 선택
+            </button>
+          </div>
+          <p className="text-small" style={{ marginTop: 0 }}>
+            {captureMode === 'camera'
+              ? '휴대폰에서는 버튼을 누르면 카메라가 열립니다. 각 각도마다 1장씩 촬영하세요.'
+              : '이미 찍어둔 사진이 있으면 각도별로 선택하세요.'}
+          </p>
+
+          <div style={{ display: 'grid', gap: '0.75rem', marginBottom: '1rem', marginTop: '0.75rem' }}>
+            {VIEWS.map((v) => (
+              <label
+                key={v}
+                className={`file-slot ${retrySet.has(v) ? 'file-slot--retry' : ''}`}
+              >
+                {VIEW_LABEL[v]} {files[v] ? `— ${files[v]!.name}` : ''}
+                {retrySet.has(v) ? ' (재촬영 권장)' : ''}
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture={captureMode === 'camera' ? 'environment' : undefined}
+                  onChange={(e) => onFile(v, e.target.files?.[0])}
+                  style={{ display: 'block', marginTop: '0.35rem' }}
+                />
+              </label>
+            ))}
+          </div>
+
+          <button type="button" className="btn btn--primary" style={{ width: '100%' }} disabled={busy} onClick={() => void submit()}>
             {busy ? '처리 중…' : '분석 요청'}
           </button>
         </section>
       )}
 
-      {err && <p style={{ color: '#b91c1c', marginTop: '1rem', whiteSpace: 'pre-wrap' }}>{err}</p>}
+      {err ? <p className="msg-error">{err}</p> : null}
 
-      {job && (
-        <section style={{ marginTop: '1.5rem', padding: '1rem', background: '#fff', borderRadius: 8 }}>
-          <h3>결과</h3>
+      {job ? (
+        <section className="card card--result" style={{ marginTop: '1rem' }}>
+          <h3 className="section-title">결과</h3>
           <p>상태: <strong>{job.status}</strong></p>
-          {job.error && (
-            <p style={{ color: '#b91c1c' }}>
+          {job.error ? (
+            <p className="msg-error" style={{ marginTop: '0.5rem' }}>
               {job.error.code}: {job.error.message}
               {job.error.errorSeverity === 'soft' ? ' (저신뢰 재시도 권장)' : ''}
             </p>
-          )}
-          {retryViews.length > 0 && (
-            <p style={{ color: '#92400e' }}>
+          ) : null}
+          {retryViews.length > 0 ? (
+            <p className="msg-warn--soft">
               다시 촬영은 전체가 아니라 <strong>{retryViews.map((v) => VIEW_LABEL[v as keyof typeof VIEW_LABEL] ?? v).join(', ')}</strong> 만 교체해서 재요청하세요.
             </p>
-          )}
-          {job.result && (
+          ) : null}
+          {job.result ? (
             <>
               {hideMass ? (
-                <p style={{ color: '#b45309' }}>
+                <p className="msg-warn">
                   추정 무게가 비현실적으로 커 보여 숫자를 숨깁니다. 카드 옆 바닥에 놓고 다시 촬영해 주세요.
                 </p>
               ) : (
-                <p>추정 무게: <strong>{job.result.mass_est_g.toFixed(3)} g</strong></p>
+                <p>
+                  추정 무게:{' '}
+                  <strong style={{ fontSize: '1.15rem', color: 'var(--gold-deep)' }}>{job.result.mass_est_g.toFixed(3)} g</strong>
+                </p>
               )}
               <p>신뢰도 등급: {job.result.confidence_tier} ({job.result.confidence_pct}%)</p>
-              {!hideMass && job.result.mass_range && (
+              {!hideMass && job.result.mass_range ? (
                 <p>범위: {job.result.mass_range.min_g.toFixed(2)} ~ {job.result.mass_range.max_g.toFixed(2)} g</p>
-              )}
-              <p style={{ fontSize: '0.85rem', color: '#64748b' }}>
+              ) : null}
+              <p className="text-small">
                 {!hideMass ? `V_hull=${job.result.V_hull_mm3} mm³, V_adj=${job.result.V_adj_mm3} mm³, ` : ''}
                 {job.result.algorithm_version}
               </p>
               {job.result.meta?.workflow?.degraded_reasons?.length ? (
-                <p style={{ fontSize: '0.85rem', color: '#92400e' }}>
+                <p className="msg-warn--soft">
                   저신뢰 사유: {job.result.meta.workflow.degraded_reasons.join(', ')}
                 </p>
               ) : null}
               {hideQuote ? (
-                <p style={{ marginTop: '0.75rem', color: '#92400e' }}>신뢰도가 낮아 참고 시세·원화 견적은 표시하지 않습니다.</p>
+                <p className="msg-warn--soft" style={{ marginTop: '0.75rem' }}>
+                  신뢰도가 낮아 참고 시세·원화 견적은 표시하지 않습니다.
+                </p>
               ) : (
-                <p style={{ marginTop: '0.75rem', color: '#64748b' }}>시세 연동 전 — 금액 견적 UI는 추후 연결합니다.</p>
+                <p className="text-muted" style={{ marginTop: '0.75rem' }}>
+                  시세 연동 전 — 금액 견적 UI는 추후 연결합니다.
+                </p>
               )}
             </>
-          )}
+          ) : null}
         </section>
-      )}
+      ) : null}
     </div>
   );
 }

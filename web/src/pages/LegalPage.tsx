@@ -13,15 +13,19 @@ export function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
   }, [kind]);
   return (
     <div>
-      <Link to="/">← 돌아가기</Link>
-      {data ? (
-        <>
-          <h2>{data.title}</h2>
-          <p style={{ whiteSpace: 'pre-wrap' }}>{data.body}</p>
-        </>
-      ) : (
-        <p>로딩…</p>
-      )}
+      <Link to="/" className="legal-back">
+        ← 돌아가기
+      </Link>
+      <article className="card">
+        {data ? (
+          <>
+            <h2 className="section-title">{data.title}</h2>
+            <p className="legal-body">{data.body}</p>
+          </>
+        ) : (
+          <p className="text-muted">로딩…</p>
+        )}
+      </article>
     </div>
   );
 }

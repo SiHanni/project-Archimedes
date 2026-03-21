@@ -1,7 +1,8 @@
-const base = (import.meta.env.VITE_API_BASE || '/api').replace(/\/$/, '');
+/** Docker nginx 프록시(`/api`→`/v1`) 또는 Vercel 빌드 시 `VITE_API_BASE`(터널 `/v1`) */
+export const apiBase = (import.meta.env.VITE_API_BASE || '/api').replace(/\/$/, '');
 
 export async function postJob(form: FormData): Promise<{ id: string; status: string }> {
-  const r = await fetch(`${base}/jobs`, {
+  const r = await fetch(`${apiBase}/jobs`, {
     method: 'POST',
     body: form,
   });
@@ -13,7 +14,7 @@ export async function postJob(form: FormData): Promise<{ id: string; status: str
 }
 
 export async function getJob(id: string): Promise<JobDto> {
-  const r = await fetch(`${base}/jobs/${id}`);
+  const r = await fetch(`${apiBase}/jobs/${id}`);
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }

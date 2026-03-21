@@ -1,0 +1,133 @@
+---
+description: OpenCV·NumPy·클래식 CV·기하 용어 정리, Archimedes 파이프라인에서의 역할, 기술 트렌드 대비 포지션 (에이전트/딥러닝과의 관계)
+alwaysApply: false
+---
+
+# Archimedes — CV 스택·파이프라인 용어 & 트렌드 메모
+
+이 문서는 **라이브러리가 무엇인지**, **클래식 CV·기하 용어가 코드에서 무엇을 뜻하는지**, **Archimedes가 이를 어떻게 연결하는지**, 그리고 **“옛 기술 vs 최신 트렌드”** 를 제품 맥락에서 정리한다. 상세 스펙은 `project-concept.mdc`, 세부 구현은 `worker/app/pipeline/` 을 본다.
+
+---
+
+## 1. OpenCV · NumPy란?
+
+### OpenCV (`opencv-python-headless`)
+
+- **Computer Vision**용 **오픈소스 라이브러리**. 이미지·비디오를 **픽셀 배열**로 읽고, **윤곽 검출·호모그래피·워프·모폴로지·필터** 등 **전통적인 이미지 처리·기하 연산**을 제공한다.
+- **headless** 변형은 GUI 없이 서버·Docker에 올리기 적합하다.
+- Archimedes에서는 **카드 쿼드 찾기**, **원근 보정**, **세그 전처리·마스크 정제** 등에 사용한다 (`worker/app/pipeline/card.py`, `segment.py` 등).
+
+### NumPy
+
+- Python의 **다차원 배열(ndarray)** 과 **벡터화 연산** 라이브러리. 이미지는 보통 `H×W×3` uint8 배열로 표현한다.
+- 복셀 그리드·마스크 논리 연산·수치 적분에 가까운 합산 등 **파이프라인의 수치 코어**에 쓰인다 (`voxel.py`, `geometry_*.py` 등).
+
+---
+
+## 2. “클래식 CV·기하”란?
+
+| 표현 | 의미 |
+|------|------|
+| **클래식 CV** | 딥러닝으로 **한 방에 “의미 추론”** 하기 전에 쓰던 방식: **엣지·윤곽·색·임계값(Otsu)·모폴로지·호모그래피** 등 **해석 가능한 규칙·수학** 위주. |
+| **기하** | 카메라·평면·스케일(mm/px)·다시점 실루엣·3D 상한 부피(Visual Hull)처럼 **좌표계와 형태**를 다루는 부분. |
+
+Archimedes v0 파이프라인은 **학습된 세그멘테이션을 필수로 두지 않고**, OpenCV + NumPy로 **카드·마스크·부피**를 구성한다. (스펙상 **학습 세그는 §15.2 보조**로 확장 가능.)
+
+---
+
+## 3. 용어별 의미 & Archimedes에서의 쓰임
+
+### 카드 스케일 (card scale, **σ = mm/px**)
+
+- **신용카드(ID-1)** 의 **알려진 실물 크기(mm)** 와 **이미지 속 픽셀 크기**를 맞추면, 그 프레임에서 **1픽셀이 몇 mm인지**(또는 그 역)를 얻을 수 있다.
+- **코드**: `CardGeometry.sigma_mm_per_px`, 카드 쿼드 검출·호모그래피 기반 (`worker/app/pipeline/card.py`). `ID1_WIDTH_MM` / `ID1_HEIGHT_MM` 는 `worker/app/constants.py`.
+- **역할**: “사진만”으로 **절대 길이(mm)** 로 실루엣을 옮기기 위한 **앵커**. 카드와 물체가 **같은 바닥·비슷한 거리**에 있어야 스펙과 맞는다 (`project-concept` §4).
+
+### 실루엣 (silhouette)
+
+- 배경과 구분된 **물체의 2D 윤곽/마스크**. 다시점에서 **같은 3D 물체**를 각기 다른 각도로 본 **그림자 형태**에 해당한다.
+- **코드**: `build_jewel_mask` 등 (`worker/app/pipeline/segment.py`) — 카드 영역과 분리한 **귀금속 이진 마스크**.
+- **역할**: Visual Hull·바운딩 제약의 입력. 세그가 틀리면 부피가 **폭발**하거나 **붕괴**한다.
+
+### 복셀 카빙 (voxel carving) / Visual Hull 근사
+
+- **복셀(voxel)**: 3D 공간을 작은 큐브 격자로 쪼갠 단위. **복셀 카빙**은 “여러 뷰의 실루엣에 **안 보이는** 복셀은 잘라 낸다”는 식으로 **물체가 들어갈 수 있는 3D 부피**를 좁히는 과정이다.
+- **Visual Hull**: 다시점 실루엣이 허용하는 **상한 부피**(실제 물체는 그 안; 속이 비어 있으면 더 작음).
+- **코드**: `worker/app/pipeline/voxel.py` — `slab_aabb` 또는 `voxel_carve` 등으로 `V_hull_mm3` 산출. 그리드 크기 등은 `VOXEL_GRID_N` (`constants.py`).
+
+### Hollow 계수 (**α_k , β_k**)
+
+- Visual Hull은 **꽉 찬 덩어리**에 가깝게 나오기 쉬워, **반지·체인·속 빈 장식** 등은 실제 금속 부피보다 **크게** 잡힌다. 이를 **경험·도메인**으로 줄이는 **스칼라 보정**이 Hollow.
+- **수식 (v1)**: \(V_{\text{adj}} = \alpha_k \cdot V_{\text{hull}} + \beta_k\) (`project-concept` §6).
+- **코드**: `worker/app/pipeline/hollow.py` 의 `adjusted_volume_mm3`, 계수 테이블 `HOLLOW_ALPHA_BETA` (`constants.py`). 제품 형태 `product_k`(ring, earring, …)별.
+
+### layout 배수 (layout volume multiplier)
+
+- **카드 대비 실루엣이 작거나 한 축이 매우 얇은** 경우(귀걸이·얇은 체인 등), Hull이 **여전히 크게** 나오는 경향을 완화하기 위해 **추가로 곱하는 배수**.
+- **코드**: `worker/app/pipeline/jewel_layout.py` 의 `layout_volume_multiplier`, 임계·버킷은 `JEWEL_TO_CARD_*`, `LAYOUT_VOL_MULT_*`, `EARRING_LAYOUT_*` (`constants.py`).
+
+### ρ 테이블 (**RHO_G_CM3**)
+
+- **밀도 ρ (g/cm³)** — 사용자가 고른 **금속·함량**에 대해 합금의 **대표 밀도**를 테이블에서 고른다.
+- **무게**: \(m \approx \rho \times V_{\text{adj}}(\text{cm}^3)\) (`hollow.mass_g`).
+- **코드**: `RHO_G_CM3` in `worker/app/constants.py`. 문헌 근사이며 스펙 §6.2와 정합.
+
+---
+
+## 4. 파이프라인에서의 연결 순서 (요약)
+
+`worker/app/pipeline/runner.py` 의 `run_pipeline` 흐름과 대응한다.
+
+1. 뷰별: 이미지 로드 → 품질 게이트 → **카드 기하·σ** → **세그로 실루엣 마스크** → **mm 바운딩** (`geometry_g1` 등).
+2. **σ 일관성** 검사 (스케일이 뷰마다 들쭉날쭉하면 재촬영 유도).
+3. `voxel.estimate_volume` → **V_hull_mm3** (슬랩 AABB 및/또는 복셀 카빙).
+4. `hollow.adjusted_volume_mm3` → **V_adj** (α, β).
+5. `jewel_layout.layout_volume_multiplier` → 필요 시 **V_adj × layout_mult**.
+6. `hollow.mass_g` → **mass_est_g** (ρ 테이블).
+7. `confidence` 등으로 **tier / mass_range / sanity** 처리.
+
+---
+
+## 5. 트렌드 대비: “옛 기술”인가, “뒤처졌는가”
+
+### 짧은 결론
+
+- **OpenCV + NumPy + 기하·복셀 Visual Hull** 은 **2020년대 CV 트렌드(대규모 딥러닝 단일 모델)** 와 결이 다르다. 하지만 **“낡아서 나쁘다”**가 아니라, **문제 정의에 따라 여전히 표준에 가까운 조합**이다.
+- **최신 트렌드**는 보통 **세그·검출·깊이·NeRF/3DGS** 쪽이지만, Archimedes 스펙은 **절대 스케일(카드) + 다시점 + 해석 가능한 상한 부피**를 유지하는 것을 골격으로 삼는다 (`project-concept` §1.7, §16.1).
+
+### 구분해서 볼 것
+
+| 축 | 클래식+기하 (지금 중심) | “트렌디”한 대안이 잘 맞는 경우 |
+|----|-------------------------|----------------------------------|
+| **절대 스케일(mm)** | 카드 + 호모그래피는 **해석·감사**에 유리 | 단안 깊이만으로 g 추정은 **스케일 앵커 없으면** 약함 |
+| **부피 상한** | Visual Hull은 **수십 년 된 기하 개념**이지만 **정의가 명확** | NeRF/3DGS는 **뷰·리소스** 부담 큼 (스펙 §16.1 비권장 이유) |
+| **세그 품질** | 색·Otsu·모폴로지는 **강건성 한계** | **주얼리 특화 세그·검출(학습)** 이 실무에서 강함 → **§15.2 보조**로 얹기 좋음 |
+| **에이전트** | 무게 추정 **코어**와 무관; UX·가이드용 | “에이전트 = 정확도” 아님 |
+
+### 제품 관점 (`§1.1a`와 정합)
+
+- 목표가 **금은방 가기 전 참고·호기심 범위**이면, **검증 가능한 기하 + 불확실성 UI**가 **과시용 최신 모델**보다 **우선**일 수 있다.
+- 동시에 **오차를 줄이려면** “전부 딥러닝으로 교체”보다 **세그·카드 검출·(선택) 깊이**를 **앵커와 Hull 앞단에 붙이는** 하이브리드가 스펙과도 맞다.
+
+### 정리 문장 (의도적으로 남김)
+
+**Archimedes는 “딥러닝 최신 트렌드를 따라가지 않는다”기보다, “**참고 견적에 필요한 해석 가능성·스케일·상한 부피**”를 **클래식 기하 파이프라인**으로 먼저 닫고, **필요 시 학습 모델을 보조로 얹는** 로드맵이다. 옛 기술을 쓴다기보다 **문제에 맞는 도구**를 쓰는 쪽에 가깝다 — 다만 **세그 정확도**에서 SOTA와의 격차는 **데이터·모델로 보완**하는 것이 일반적이다.
+
+---
+
+## 6. 관련 파일 빠른 맵
+
+| 경로 | 내용 |
+|------|------|
+| `worker/app/constants.py` | ID-1, ρ, Hollow αβ, layout 임계 |
+| `worker/app/pipeline/card.py` | 카드·σ |
+| `worker/app/pipeline/segment.py` | 실루엣 마스크 |
+| `worker/app/pipeline/voxel.py` | V_hull |
+| `worker/app/pipeline/hollow.py` | V_adj, 질량 |
+| `worker/app/pipeline/jewel_layout.py` | layout 배수 |
+| `worker/app/pipeline/runner.py` | 전체 오케스트레이션 |
+| `.cursor/rules/project-concept.mdc` | 제품·기하 스펙 단일 소스 |
+
+---
+
+*본 문서는 기술 온보딩·의사결정 시 참고용이다. 구현 변경 시 §4·§6은 코드와 함께 갱신한다.*

@@ -63,9 +63,13 @@ cp .env.example .env   # 선택
 
 ### 2.4 로컬 개발 — 서버 수정 시 자동 재시작 (이미지 재빌드 최소)
 
+- **`./scripts/start-dev-day.sh`** (권장): 전날 `docker compose down` 후 **다음날 한 번에** — `up -d --build` + API 헬스 대기 + **`cloudflared`** 터널(Vercel용). 옵션: `--no-dev`, `--no-tunnel`, `--watch`.
 - `./scripts/dev-up.sh`  
   - `docker-compose.dev.yml` 오버레이: `api` 는 `Dockerfile.dev` + `src` 마운트 + `nest start --watch`, `worker` 는 `uvicorn --reload`, `worker-consumer` 는 `watchfiles`.  
 - `./scripts/dev-up.sh --watch` (Compose **2.23+**): 위에 더해 `web` 소스 변경 시 **web 이미지 재빌드**(`develop.watch`).  
+- `./scripts/dev-up.sh --tunnel` → 내부적으로 `start-dev-day.sh --dev` 와 동일(도커 백그라운드 + API 대기 + 터널).
+- **Vercel + 로컬 API**: `start-dev-day.sh` 또는 `tunnel-api.sh` 단독 — `cloudflared` 출력 URL을 `VITE_API_BASE` 로 Vercel에 넣고 재배포. Quick Tunnel 은 재시작 시 URL이 바뀜 → env 갱신 필요. **고정 URL**은 Cloudflare Zero Trust 이름 있는 터널(`.env`에 `CLOUDFLARE_TUNNEL_TOKEN` + `ARCHIMEDES_PUBLIC_API_BASE`) — `docs/cloudflare-stable-tunnel.md`. 종료: `./scripts/tunnel-api-stop.sh`
+
 - `package.json` / `pyproject.toml` 등 의존성 변경 후:  
   `docker compose -f docker-compose.yml -f docker-compose.dev.yml build <서비스>`  
 - CI는 기존처럼 `docker compose build` 만 사용하므로 **dev 파일은 자동으로 합쳐지지 않음**.

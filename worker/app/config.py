@@ -44,9 +44,26 @@ class Settings(BaseSettings):
     sanity_max_mass_g: float = Field(
         default=2500.0, validation_alias="ARCHIMEDES_SANITY_MAX_MASS_G"
     )
+    # ── v2 백엔드 라우팅 (archimedes-v2-single-photo.mdc §2) ──
     segmentation_backend: str = Field(
         default="heuristic", validation_alias="ARCHIMEDES_SEGMENTATION_BACKEND"
     )
+    detector_backend: str = Field(default="stub", validation_alias="ARCHIMEDES_DETECTOR_BACKEND")
+    depth_backend: str = Field(default="stub", validation_alias="ARCHIMEDES_DEPTH_BACKEND")
+    # 모델 가중치는 이미지에 굽지 않고 볼륨으로 주입한다
+    onnx_model_dir: str = Field(default="/models", validation_alias="ARCHIMEDES_ONNX_MODEL_DIR")
+    # 깊이 모델 출력 성격 — 틀리면 스케일 복원이 통째로 어긋난다
+    depth_output_kind: str = Field(
+        default="affine_invariant", validation_alias="ARCHIMEDES_DEPTH_OUTPUT_KIND"
+    )
+    depth_output_inverse: bool = Field(
+        default=False, validation_alias="ARCHIMEDES_DEPTH_OUTPUT_INVERSE"
+    )
+    depth_output_scale_to_mm: float = Field(
+        default=1.0, validation_alias="ARCHIMEDES_DEPTH_OUTPUT_SCALE_MM"
+    )
+    # 1이면 앵커(카드) 없는 job 을 ERR_SCALE_UNRESOLVED 로 거절
+    require_anchor: bool = Field(default=False, validation_alias="ARCHIMEDES_REQUIRE_ANCHOR")
     # True(기본): 카드 면 위(on_card_inner)로 잡힌 세그는 거절 — §4 동일 평면·옆 배치와 정합, 과대 부피 방지
     reject_jewel_on_card: bool = Field(
         default=True, validation_alias="ARCHIMEDES_REJECT_ON_CARD_INNER"
@@ -54,7 +71,14 @@ class Settings(BaseSettings):
 
     otel_exporter_otlp_endpoint: str = ""
 
-    @field_validator("use_voxel_carve", "allow_card_fallback", "reject_jewel_on_card", mode="before")
+    @field_validator(
+        "use_voxel_carve",
+        "allow_card_fallback",
+        "reject_jewel_on_card",
+        "depth_output_inverse",
+        "require_anchor",
+        mode="before",
+    )
     @classmethod
     def _coerce_voxel_carve(cls, v: object) -> bool:
         if isinstance(v, bool):

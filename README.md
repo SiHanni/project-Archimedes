@@ -1,7 +1,9 @@
 # Archimedes
 
-귀금속 **5방향 이미지** → 품질 게이트 → 카드 스케일 → 세그 → 기하(v0) → Hollow → 밀도로 **참고 무게** 추정.  
-스펙: `.cursor/rules/project-concept.mdc` · 구현 계획: `.cursor/rules/archimedes-implementation-plan.mdc`.  
+귀금속 **사진** → 품질 게이트 → 검출·분할 → **실공간 스케일 복원** → Hollow → 밀도로 **참고 무게·예상 견적** 추정.
+
+**v2 스펙(현행 코어)**: `.cursor/rules/archimedes-v2-single-photo.mdc` — 단일 사진 + 세그멘테이션 + 단안 깊이추정, 신용카드는 **메트릭 앵커**로 재활용. 연구개발계획서 ② AI 매칭 솔루션 반영.  
+제품·물성·법무·운영 정본: `.cursor/rules/project-concept.mdc` · 구현 계획: `.cursor/rules/archimedes-implementation-plan.mdc`.  
 **실행·Docker·트러블슈팅(상세)**: `.cursor/rules/archimedes-runbook.mdc`  
 **기술 확장(복셀 카빙·Precision·세그·multer2)**: `.cursor/rules/archimedes-technical-extensions.mdc`  
 **CV/기하 용어 정리**: `.cursor/rules/archimedes-concepts-glossary.mdc`  

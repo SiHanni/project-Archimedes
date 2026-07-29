@@ -16,7 +16,7 @@ from app.config import get_settings
 from app.db import jobs as jobs_db
 from app.models.schemas import JobInputRecord
 from app.pipeline.exceptions import PipelineError
-from app.pipeline.ingest import load_views_from_s3
+from app.pipeline.ingest import load_images_from_s3
 from app.pipeline.runner import run_pipeline
 from app.telemetry import maybe_init_otel
 
@@ -41,10 +41,9 @@ def process_one(job_id: str) -> None:
         if isinstance(inp_raw, str):
             inp_raw = json.loads(inp_raw)
         inp = JobInputRecord.model_validate(inp_raw)
-        views_keys = inp.views.model_dump()
 
         jobs_db.mark_processing(conn, job_id, settings.algorithm_version)
-        images = load_views_from_s3(settings, views_keys)
+        images = load_images_from_s3(settings, inp.image_keys())
         result = run_pipeline(job_id, inp, images, settings)
         jobs_db.mark_completed(conn, job_id, result)
         log.info("job %s completed", job_id)

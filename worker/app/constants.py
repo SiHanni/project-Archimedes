@@ -2,18 +2,68 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 # ISO/IEC 7810 ID-1 (mm)
 ID1_WIDTH_MM: float = 85.60
 ID1_HEIGHT_MM: float = 53.98
 
-# Metal + purity -> rho (g/cm³) — document-level approximations
-RHO_G_CM3: dict[tuple[str, str], float] = {
-    ("gold", "24k"): 19.32,
-    ("gold", "18k"): 15.58,
-    ("gold", "14k"): 13.6,
-    ("silver", "sterling"): 10.49,
-    ("silver", "fine"): 10.49,
+
+@dataclass(frozen=True)
+class Material:
+    """금속·함량 1행. ρ 는 **문서용 근사**이며 합금 조성에 따라 달라진다."""
+
+    metal: str
+    purity: str
+    rho_g_cm3: float
+    label_ko: str
+    note: str = ""
+
+
+# 사용자가 고르는 (금속, 함량) → ρ (g/cm³).
+# ⚠️ project-concept §15.3: 운영 전 합금 규격·출처(버전)를 명문화해야 한다.
+#    특히 백금 합금(Ru/Ir/Co)은 조성별 편차가 커서 아래 값은 대표값일 뿐이다.
+MATERIALS: dict[tuple[str, str], Material] = {
+    ("gold", "24k"): Material("gold", "24k", 19.32, "순금 24K"),
+    ("gold", "22k"): Material("gold", "22k", 17.80, "22K", "합금 대표값"),
+    ("gold", "18k"): Material("gold", "18k", 15.58, "18K", "합금 대표값"),
+    ("gold", "14k"): Material("gold", "14k", 13.60, "14K", "합금 대표값"),
+    ("gold", "10k"): Material("gold", "10k", 11.60, "10K", "합금 대표값"),
+    ("silver", "fine"): Material("silver", "fine", 10.49, "순은 999"),
+    ("silver", "sterling"): Material("silver", "sterling", 10.36, "실버 925", "Ag92.5/Cu7.5"),
+    ("platinum", "pt999"): Material("platinum", "pt999", 21.45, "순백금 Pt999"),
+    ("platinum", "pt950"): Material("platinum", "pt950", 20.10, "백금 Pt950", "Pt95/Ru5 기준"),
+    ("platinum", "pt900"): Material("platinum", "pt900", 20.00, "백금 Pt900", "합금 대표값"),
 }
+
+# 입력 정규화 — 프런트·외부 호출이 보내는 표기 흔들림 흡수
+METAL_ALIASES: dict[str, str] = {
+    "gold": "gold", "au": "gold", "금": "gold",
+    "silver": "silver", "ag": "silver", "은": "silver",
+    "platinum": "platinum", "pt": "platinum", "백금": "platinum",
+}
+# 함량 표기는 금속마다 의미가 달라(예: "999" = 금 24K vs 은 fine) 금속별로 분리한다.
+PURITY_ALIASES: dict[str, dict[str, str]] = {
+    "gold": {
+        "24k": "24k", "999": "24k", "1000": "24k", "pure": "24k", "순금": "24k",
+        "22k": "22k", "916": "22k",
+        "18k": "18k", "750": "18k",
+        "14k": "14k", "585": "14k",
+        "10k": "10k", "417": "10k",
+    },
+    "silver": {
+        "sterling": "sterling", "925": "sterling", "s925": "sterling",
+        "fine": "fine", "999": "fine", "1000": "fine", "pure": "fine", "순은": "fine",
+    },
+    "platinum": {
+        "pt999": "pt999", "999": "pt999", "pt1000": "pt999", "pure": "pt999",
+        "pt950": "pt950", "950": "pt950",
+        "pt900": "pt900", "900": "pt900",
+    },
+}
+
+# 하위 호환 (기존 호출부·테스트)
+RHO_G_CM3: dict[tuple[str, str], float] = {k: m.rho_g_cm3 for k, m in MATERIALS.items()}
 
 # product_k -> (alpha_k, beta_k mm³)
 HOLLOW_ALPHA_BETA: dict[str, tuple[float, float]] = {

@@ -10,6 +10,32 @@ const VIEW_LABEL: Record<(typeof VIEWS)[number], string> = {
   back: '후면',
 };
 
+/** worker `constants.MATERIALS` 와 동일해야 함 (금속별로 함량 표기가 다름) */
+const METALS = [
+  { value: 'gold', label: '금' },
+  { value: 'silver', label: '은' },
+  { value: 'platinum', label: '백금' },
+] as const;
+
+const PURITY_BY_METAL: Record<string, { value: string; label: string }[]> = {
+  gold: [
+    { value: '24k', label: '24K (순금)' },
+    { value: '22k', label: '22K' },
+    { value: '18k', label: '18K' },
+    { value: '14k', label: '14K' },
+    { value: '10k', label: '10K' },
+  ],
+  silver: [
+    { value: 'sterling', label: '925 (실버)' },
+    { value: 'fine', label: '999 (순은)' },
+  ],
+  platinum: [
+    { value: 'pt950', label: 'Pt950' },
+    { value: 'pt900', label: 'Pt900' },
+    { value: 'pt999', label: 'Pt999 (순백금)' },
+  ],
+};
+
 export function HomePage() {
   const [step, setStep] = useState<0 | 1 | 2>(0);
   const [knows, setKnows] = useState<'yes' | 'no' | null>(null);
@@ -24,6 +50,13 @@ export function HomePage() {
 
   const onFile = (v: (typeof VIEWS)[number], f: File | undefined) => {
     setFiles((prev) => ({ ...prev, [v]: f }));
+  };
+
+  /** 금속을 바꾸면 함량 표기 체계가 달라지므로 첫 항목으로 재설정한다 (예: 금 18k → 백금 pt950) */
+  const onMetalChange = (next: string) => {
+    setMetal(next);
+    const first = PURITY_BY_METAL[next]?.[0]?.value;
+    if (first) setPurity(first);
   };
 
   const poll = useCallback(async (id: string) => {
@@ -145,18 +178,18 @@ export function HomePage() {
           <div style={{ display: 'grid', gap: '0.5rem', maxWidth: 320, marginBottom: '1rem' }}>
             <label>
               금속
-              <select value={metal} onChange={(e) => setMetal(e.target.value)} style={{ display: 'block', width: '100%' }}>
-                <option value="gold">금</option>
-                <option value="silver">은</option>
+              <select value={metal} onChange={(e) => onMetalChange(e.target.value)} style={{ display: 'block', width: '100%' }}>
+                {METALS.map((m) => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
               </select>
             </label>
             <label>
               함량
               <select value={purity} onChange={(e) => setPurity(e.target.value)} style={{ display: 'block', width: '100%' }}>
-                <option value="24k">24K</option>
-                <option value="18k">18K</option>
-                <option value="14k">14K</option>
-                <option value="sterling">925</option>
+                {(PURITY_BY_METAL[metal] ?? []).map((p) => (
+                  <option key={p.value} value={p.value}>{p.label}</option>
+                ))}
               </select>
             </label>
             <label>

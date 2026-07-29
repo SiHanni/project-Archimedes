@@ -118,6 +118,46 @@ EARRING_LAYOUT_VOL_MULT_MED: float = 0.024
 EARRING_LAYOUT_VOL_MULT_LARGE: float = 0.055
 EARRING_LAYOUT_VOL_MULT_XL: float = 0.10
 
+# ── v2 depth 경로 (archimedes-v2-single-photo.mdc §4) ──
+#
+# V_2.5D = A_proj × h_eff 는 물체를 "단면이 일정한 기둥"으로 본다.
+# 실제 장신구는 단면이 둥글어(대략 타원) 부피가 π/4 ≈ 0.785 배쯤 작고,
+# 체인은 링크 사이 빈 공간이 더 많다. 아래 α 는 그 **물리적 근거**에서 출발한
+# 값이며, v1 의 α(예: earring 0.042)와 달리 버그 보정치가 아니다.
+# 실측이 쌓이면 §4.4 학습형 잔차로 대체한다.
+HOLLOW_ALPHA_BETA_DEPTH: dict[str, tuple[float, float]] = {
+    "ring": (0.80, 0.0),
+    "necklace": (0.65, 0.0),
+    "chain": (0.60, 0.0),
+    "bracelet": (0.70, 0.0),
+    "pendant": (0.75, 0.0),
+    "earring": (0.70, 0.0),
+    "other": (0.75, 0.0),
+}
+
+# 가시 두께 h_vis 의 물리적 하한·상한 (mm).
+# 하한: 접사 깊이 노이즈로 h_vis 가 0 에 붙는 것을 막는다.
+# 상한: 깊이 이상치가 부피를 폭주시키는 것을 막는다.
+# 둘 다 **물리적 클램프**이며 적용 시 meta 에 플래그로 남긴다(조용히 깎지 않는다).
+MIN_THICKNESS_MM_BY_PRODUCT: dict[str, float] = {
+    "ring": 1.0,
+    "necklace": 0.8,
+    "chain": 0.8,
+    "bracelet": 1.0,
+    "pendant": 0.8,
+    "earring": 0.6,
+    "other": 0.8,
+}
+MAX_THICKNESS_MM_BY_PRODUCT: dict[str, float] = {
+    "ring": 9.0,
+    "necklace": 12.0,
+    "chain": 12.0,
+    "bracelet": 14.0,
+    "pendant": 12.0,
+    "earring": 10.0,
+    "other": 25.0,
+}
+
 # Prior mass ranges (g) for tier demotion — soft only (§6.4)
 PRIOR_MASS_G: dict[str, tuple[float, float]] = {
     "ring": (1.5, 12.0),

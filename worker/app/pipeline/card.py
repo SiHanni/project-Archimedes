@@ -24,6 +24,41 @@ class CardGeometry:
     precision_pose_candidate: bool = False
     precision_solution_count: int = 0
     used_fallback_quad: bool = False
+    long_edge_px: float = 0.0  # 원본 이미지에서의 카드 긴 변(ID-1 85.60mm 축) 평균 길이
+    short_edge_px: float = 0.0  # 원본 이미지에서의 카드 짧은 변(53.98mm 축) 평균 길이
+
+
+def card_edge_lengths_px(quad_px: np.ndarray) -> tuple[float, float]:
+    """
+    쿼드(TL,TR,BR,BL)의 마주보는 변 쌍을 평균해 (긴 변, 짧은 변) px 를 낸다.
+
+    `order_quad_points` 는 sum/diff 휴리스틱이라 카드가 세로로 누우면 TL→TR 이
+    짧은 변이 될 수 있다. ID-1 종횡비는 1.586 이라 길이로 판별하는 편이 안전하다.
+    """
+    q = np.asarray(quad_px, dtype=np.float64).reshape(4, 2)
+    e_a = 0.5 * (float(np.linalg.norm(q[1] - q[0])) + float(np.linalg.norm(q[2] - q[3])))
+    e_b = 0.5 * (float(np.linalg.norm(q[2] - q[1])) + float(np.linalg.norm(q[3] - q[0])))
+    return max(e_a, e_b), min(e_a, e_b)
+
+
+def sigma_mm_per_px_from_quad(quad_px: np.ndarray, view: str | None = None) -> float:
+    """
+    **원본 이미지 픽셀** 기준 mm/px.
+
+    이전 구현은 워프 캔버스 폭(`dst_w=856`)으로 나눠 σ 가 항상 0.1 로 고정됐고,
+    그 값이 원본 픽셀 좌표에 곱해져 단위가 어긋났다. 상세: `archimedes-v2-single-photo.mdc` §0.4.
+
+    두 축에서 각각 σ 후보를 구한 뒤 **작은 쪽**을 택한다. 원근 단축(foreshortening)은
+    투영 길이를 줄이기만 하므로(→ σ 를 크게만 만듦), 최솟값이 가장 덜 편향된 추정이다.
+    """
+    long_px, short_px = card_edge_lengths_px(quad_px)
+    if long_px < 2.0 or short_px < 2.0:
+        raise PipelineError(
+            "ERR_CARD_NOT_FOUND",
+            f"Degenerate card quad (long={long_px:.1f}px, short={short_px:.1f}px)",
+            retry_step=view,
+        )
+    return min(ID1_WIDTH_MM / long_px, ID1_HEIGHT_MM / short_px)
 
 
 def _largest_quad_from_contours(
@@ -102,7 +137,6 @@ def _contours_from_canny(gray: np.ndarray, t1: int, t2: int) -> list:
 
 def detect_card_quad(bgr: np.ndarray, view: str) -> np.ndarray:
     """Find credit-card-like quadrilateral in image (pixels)."""
-    h, w = bgr.shape[:2]
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (5, 5), 0)
 
@@ -168,17 +202,23 @@ def _fallback_quad_from_frame(shape: tuple[int, int, int] | tuple[int, int]) -> 
     return np.array([tl, tr, br, bl], dtype=np.float32)
 
 
-def warp_card_and_sigma(bgr: np.ndarray, quad: np.ndarray) -> CardGeometry:
-    """Warp card to ID-1 aspect; sigma = mm/px along width."""
+def warp_card_and_sigma(bgr: np.ndarray, quad: np.ndarray, view: str | None = None) -> CardGeometry:
+    """
+    카드 정면 워프(**미리보기·호모그래피 전용**) + 원본 픽셀 기준 σ 산출.
+
+    워프는 시각 검수와 `decomposeHomographyMat` 입력으로만 쓰고,
+    스케일은 반드시 **원본 쿼드**에서 뽑는다(`sigma_mm_per_px_from_quad`).
+    """
     dst_w = 856
-    dst_h = int(round(dst_w * (ID1_HEIGHT_MM / ID1_WIDTH_MM)))
+    dst_h = round(dst_w * (ID1_HEIGHT_MM / ID1_WIDTH_MM))
     dst = np.array(
         [[0, 0], [dst_w - 1, 0], [dst_w - 1, dst_h - 1], [0, dst_h - 1]],
         dtype=np.float32,
     )
     H = cv2.getPerspectiveTransform(quad, dst)
     warped = cv2.warpPerspective(bgr, H, (dst_w, dst_h))
-    sigma = ID1_WIDTH_MM / float(dst_w)
+    sigma = sigma_mm_per_px_from_quad(quad, view)
+    long_px, short_px = card_edge_lengths_px(quad)
     prec_ok, prec_n = evaluate_card_homography_precision(H, bgr.shape)
     return CardGeometry(
         sigma_mm_per_px=sigma,
@@ -187,20 +227,39 @@ def warp_card_and_sigma(bgr: np.ndarray, quad: np.ndarray) -> CardGeometry:
         homography_3x3=H,
         precision_pose_candidate=prec_ok,
         precision_solution_count=prec_n,
+        long_edge_px=long_px,
+        short_edge_px=short_px,
     )
 
 
 def compute_card_geometry(bgr: np.ndarray, view: str, settings: Settings | None = None) -> CardGeometry:
+    """
+    카드(메트릭 앵커) 검출 + σ 산출.
+
+    v2에서 카드는 **선택적 앵커**다. 검출 실패 시 날조된 사각형으로 진행하는 대신
+    깊이추정 단독 경로(+ tier 캡)로 넘어가는 것이 원칙이다(`archimedes-v2-single-photo.mdc` §3.2).
+    `allow_card_fallback` 은 데모 전용 완화 스위치이며 기본 OFF.
+    """
     try:
         quad = detect_card_quad(bgr, view)
-        geom = warp_card_and_sigma(bgr, quad)
+        geom = warp_card_and_sigma(bgr, quad, view)
         geom.used_fallback_quad = False
         return geom
     except PipelineError:
         if settings is None or not settings.allow_card_fallback:
             raise
-        # 완화 모드: 카드 미검출이어도 임시 사각형으로 파이프라인을 진행(정확도 저하 가능)
+        # 완화 모드: 카드 미검출이어도 임시 사각형으로 진행 — 스케일이 날조되므로 데모 외 사용 금지
         quad = _fallback_quad_from_frame(bgr.shape)
-        geom = warp_card_and_sigma(bgr, quad)
+        geom = warp_card_and_sigma(bgr, quad, view)
         geom.used_fallback_quad = True
         return geom
+
+
+def try_compute_card_geometry(
+    bgr: np.ndarray, view: str, settings: Settings | None = None
+) -> CardGeometry | None:
+    """앵커가 선택적인 v2 단일사진 경로용 — 검출 실패를 예외 대신 None 으로."""
+    try:
+        return compute_card_geometry(bgr, view, settings)
+    except PipelineError:
+        return None

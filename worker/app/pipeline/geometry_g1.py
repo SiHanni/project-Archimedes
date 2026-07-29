@@ -1,6 +1,12 @@
 """
-G1 v0: map jewel silhouette bbox from image pixels to each view's (u,v) mm plane
-using card-centered weak scale (sigma). Full weak-perspective voxel carve: 백로그(implementation-plan §3).
+G1: 뷰별 실루엣 bbox 를 카드 중심 기준 (u,v) mm 평면 좌표로 옮긴다.
+
+축 부호·월드 매핑은 `view_axes.VIEW_AXIS_MAP` **단일 소스**를 따른다.
+이 모듈은 부호 없는 (u,v) mm 만 만들고, 월드 축 할당은
+`view_axes.view_world_intervals` 가 담당한다.
+
+이전 구현은 여기서 뷰별 미러를 직접 넣었고 `geometry_project` 는 별도 if-체인을
+갖고 있어 두 방향이 어긋났다 — 상세: `archimedes-v2-single-photo.mdc` §0.4 #2.
 """
 
 from __future__ import annotations
@@ -10,9 +16,14 @@ import numpy as np
 from app.pipeline.card import CardGeometry
 
 
-def jewel_bbox_uv_mm(mask: np.ndarray, card: CardGeometry, view: str) -> tuple[float, float, float, float]:
+def jewel_bbox_uv_mm(
+    mask: np.ndarray, card: CardGeometry, view: str | None = None
+) -> tuple[float, float, float, float]:
     """
-    Returns (u_min, u_max, v_min, v_max) in mm for this view's projection coordinates.
+    Returns (u_min, u_max, v_min, v_max) in mm — 카드 중심 원점,
+    u = 이미지 가로(+오른쪽), v = 이미지 세로(+위쪽).
+
+    `view` 는 하위 호환용 인자이며 더 이상 부호에 관여하지 않는다.
     """
     ys, xs = np.where(mask > 0)
     if len(xs) < 10:
@@ -23,25 +34,9 @@ def jewel_bbox_uv_mm(mask: np.ndarray, card: CardGeometry, view: str) -> tuple[f
     ccy = float(card.quad_px[:, 1].mean())
     s = card.sigma_mm_per_px
 
-    # Pixel deltas -> view-plane mm (see archimedes-implementation-plan §3 / concept §3)
-    def span(dx0: float, dx1: float, dy0: float, dy1: float) -> tuple[float, float, float, float]:
-        u0 = (dx0 - ccx) * s
-        u1 = (dx1 - ccx) * s
-        v0 = -(dy1 - ccy) * s  # image y down
-        v1 = -(dy0 - ccy) * s
-        return min(u0, u1), max(u0, u1), min(v0, v1), max(v0, v1)
-
-    u0, u1, v0, v1 = span(x0, x1, y0, y1)
-
-    if view == "front":
-        return u0, u1, v0, v1  # u~x, v~z
-    if view == "top":
-        return u0, u1, v0, v1  # u~x, v~y
-    if view == "left":
-        return u0, u1, v0, v1  # u~z, v~y
-    if view == "right":
-        # Mirror u so world z aligns with left view
-        return -u1, -u0, v0, v1
-    if view == "back":
-        return -u1, -u0, v0, v1  # u~-x, v~z
-    return u0, u1, v0, v1
+    u0 = (x0 - ccx) * s
+    u1 = (x1 - ccx) * s
+    # 이미지 y 는 아래로 증가 → 위쪽이 + 가 되도록 반전
+    v0 = -(y1 - ccy) * s
+    v1 = -(y0 - ccy) * s
+    return min(u0, u1), max(u0, u1), min(v0, v1), max(v0, v1)

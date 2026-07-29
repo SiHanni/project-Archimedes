@@ -8,11 +8,11 @@ from app.constants import SANITY_MAX_MASS_G_BY_PRODUCT, VIEW_ORDER, VOXEL_GRID_N
 from app.models.schemas import JobInputRecord, JobResult, MassRange
 from app.pipeline import confidence as conf_mod
 from app.pipeline import hollow
+from app.pipeline import jewel_layout as jewel_layout_mod
 from app.pipeline import voxel as voxel_mod
 from app.pipeline.card import CardGeometry, compute_card_geometry
 from app.pipeline.exceptions import PipelineError
 from app.pipeline.geometry_g1 import jewel_bbox_uv_mm
-from app.pipeline import jewel_layout as jewel_layout_mod
 from app.pipeline.ingest import bytes_to_bgr, collect_exif
 from app.pipeline.quality_gate import check_image_quality
 from app.pipeline.segment import build_jewel_mask
@@ -47,7 +47,6 @@ def run_pipeline(
     exif_meta: dict[str, dict] = {}
     sigmas: dict[str, float] = {}
     bboxes: dict[str, tuple[float, float, float, float]] = {}
-    bboxes_coarse: dict[str, tuple[float, float, float, float]] = {}
     masks: dict[str, Any] = {}
     cards: dict[str, CardGeometry] = {}
     placement_by_view: dict[str, str] = {}
@@ -55,7 +54,8 @@ def run_pipeline(
     for view in VIEW_ORDER:
         raw = images[view]
         exif_meta[view] = collect_exif(raw)
-        bgr = bytes_to_bgr(raw)
+        # EXIF orientation 을 화소에 반영해야 뷰↔월드 축 매핑이 성립한다(v2 §0.4 #4)
+        bgr = bytes_to_bgr(raw, exif_meta[view].get("orientation"))
         check_image_quality(bgr, settings, view)
         card = compute_card_geometry(bgr, view, settings)
         cards[view] = card
@@ -63,20 +63,13 @@ def run_pipeline(
         mask, seg_meta = build_jewel_mask(bgr, card, settings, view, job_id=job_id)
         masks[view] = mask
         placement_by_view[view] = seg_meta.get("placement_mode", "subtract_card")
-        u0, u1, v0, v1 = jewel_bbox_uv_mm(mask, card, view)
-        bboxes[view] = (u0, u1, v0, v1)
-        u_c = 0.5 * (u0 + u1)
-        v_c = 0.5 * (v0 + v1)
-        hu = 0.5 * (u1 - u0) * 0.85
-        hv = 0.5 * (v1 - v0) * 0.85
-        bboxes_coarse[view] = (u_c - hu, u_c + hu, v_c - hv, v_c + hv)
+        bboxes[view] = jewel_bbox_uv_mm(mask, card, view)
 
     _check_sigma_consistency(sigmas, settings.scale_mismatch_ratio, settings)
 
     view_items = [(v, masks[v], cards[v]) for v in VIEW_ORDER]
     vol_est = voxel_mod.estimate_volume(
         bboxes,
-        bboxes_coarse,
         settings.voxel_penalty_resolution_ratio,
         use_carving=settings.use_voxel_carve,
         view_items=view_items,
@@ -101,12 +94,14 @@ def run_pipeline(
     # 카드 폴백·비현실적 무게 → 신뢰도 하한(§14.1 견적 게이팅과 정합)
     quality_ok = (len(fallback_views) == 0) and (not implausible_mass)
     scale_tight = len(fallback_views) == 0
+    coarse_model = vol_est.volume_model != "voxel_carve"
 
     cstate = conf_mod.ConfidenceState(
         multires_penalty=vol_est.multires_penalty,
         scale_tight=scale_tight,
         quality_ok=quality_ok,
         precision_boost=precision_boost,
+        coarse_volume_model=coarse_model,
     )
     tier = cstate.tier()
     tier = conf_mod.apply_prior_demotion(mass, inp.product_k, tier)
@@ -115,6 +110,7 @@ def run_pipeline(
         scale_tight=scale_tight,
         quality_ok=(tier != "low"),
         precision_boost=precision_boost,
+        coarse_volume_model=coarse_model,
     ).pct()
     if tier == "low":
         pct = min(pct, 35.0)

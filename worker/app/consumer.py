@@ -51,7 +51,7 @@ def process_one(job_id: str) -> None:
     except PipelineError as pe:
         log.warning("job %s pipeline error %s", job_id, pe.code)
         jobs_db.mark_failed(conn, job_id, pe.code, str(pe))
-    except Exception:  # noqa: BLE001
+    except Exception:
         log.exception("job %s failed", job_id)
         jobs_db.mark_failed(conn, job_id, "ERR_INTERNAL", traceback.format_exc()[:2000])
     finally:
@@ -73,7 +73,7 @@ def main() -> None:
             process_one(job_id)
         except KeyboardInterrupt:
             sys.exit(0)
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.exception("loop error")
             time.sleep(1.0)
 

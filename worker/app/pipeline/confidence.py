@@ -12,6 +12,9 @@ class ConfidenceState:
     quality_ok: bool = True
     # §3 Precision: 다뷰에서 호모그래피 분해 후보 인정 시 한 단계 보정(과장 금지)
     precision_boost: bool = False
+    # 부피 모델이 상한 근사(슬랩 AABB)이거나 스케일 앵커가 없을 때의 감점.
+    # 슬랩 단독에는 격자 해상도 개념이 없어 `multires_penalty` 로는 표현할 수 없다.
+    coarse_volume_model: bool = False
 
     def tier(self) -> str:
         if not self.quality_ok:
@@ -21,6 +24,9 @@ class ConfidenceState:
             score -= 1
         if not self.scale_tight:
             score -= 1
+        if self.coarse_volume_model:
+            score -= 1
+        score = max(0, score)
         if self.precision_boost and score < 2:
             score += 1
         return ["low", "medium", "high"][score]

@@ -35,8 +35,10 @@ class Settings(BaseSettings):
         default=0.12, validation_alias="ARCHIMEDES_VOXEL_PENALTY_RATIO"
     )
     use_voxel_carve: bool = Field(default=True, validation_alias="ARCHIMEDES_USE_VOXEL_CARVE")
+    # v2: 카드는 선택적 "메트릭 앵커". 미검출 시 프레임 중앙에 가짜 카드를 가정하면
+    # 스케일이 날조되므로 기본 OFF — 단일사진 경로는 깊이추정 단독(+tier 캡)으로 폴백한다.
     allow_card_fallback: bool = Field(
-        default=True, validation_alias="ARCHIMEDES_ALLOW_CARD_FALLBACK"
+        default=False, validation_alias="ARCHIMEDES_ALLOW_CARD_FALLBACK"
     )
     # 무게가 이 값(g)을 넘으면 비현실적로 간주하고 UI에서 숫자 숨김(meta.sanity)
     sanity_max_mass_g: float = Field(

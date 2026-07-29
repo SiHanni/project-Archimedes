@@ -5,7 +5,11 @@ from __future__ import annotations
 import numpy as np
 
 from app.pipeline.card import CardGeometry
-from app.pipeline.voxel import carve_visual_hull_mm3, slab_aabb_intervals_mm, volume_from_view_bboxes
+from app.pipeline.voxel import (
+    carve_visual_hull_mm3,
+    slab_aabb_intervals_mm,
+    volume_from_view_bboxes,
+)
 
 
 def _fake_card(h: int = 512, w: int = 512) -> CardGeometry:
@@ -40,5 +44,5 @@ def test_carve_volume_not_exceeds_slab() -> None:
     assert v_c > 0
     # 카빙 AABB는 슬랩 교차에 3% 팽창이 붙어 슬랩 단독 부피보다 다소 클 수 있음
     assert v_c <= v_sl * 1.25 + 5000.0
-    x_rng, y_rng, z_rng = slab_aabb_intervals_mm(bboxes)
+    x_rng, _y_rng, _z_rng = slab_aabb_intervals_mm(bboxes)
     assert x_rng[0] < x_rng[1]

@@ -5,9 +5,8 @@ OpenCV: decomposeHomographyMat(H, K) + 단순 체리얼리티 휴리스틱.
 
 from __future__ import annotations
 
-import numpy as np
-
 import cv2
+import numpy as np
 
 
 def evaluate_card_homography_precision(

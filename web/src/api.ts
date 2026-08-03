@@ -1,4 +1,5 @@
-const prefix = '/api';
+const rawApiBase = import.meta.env.VITE_API_BASE as string | undefined;
+const prefix = (rawApiBase || "/api").replace(/\/+$/, "");
 
 export async function postJob(form: FormData): Promise<{ id: string; status: string }> {
   const r = await fetch(`${prefix}/jobs`, {
@@ -27,6 +28,25 @@ export type JobSanityMeta = {
   raw_mass_est_g?: number;
 };
 
+/** worker `scale_fusion.ScaleFusionResult.as_meta()` */
+export type JobScaleFusionMeta = {
+  method?: string;
+  anchor_used?: boolean;
+  ill_conditioned?: boolean;
+  card_distance_mm?: number | null;
+  depth_rmse_mm?: number | null;
+};
+
+/** worker `reconstruct.Reconstruction.as_meta()` */
+export type JobReconstructionMeta = {
+  method?: string;
+  area_proj_mm2?: number;
+  length_mm?: number;
+  width_mm?: number;
+  h_mean_mm?: number;
+  thickness_clamp?: string | null;
+};
+
 export type JobDto = {
   id: string;
   status: string;
@@ -38,7 +58,12 @@ export type JobDto = {
     V_hull_mm3: number;
     V_adj_mm3: number;
     algorithm_version: string;
-    meta?: { sanity?: JobSanityMeta };
+    meta?: {
+      capture_mode?: string;
+      sanity?: JobSanityMeta;
+      scale_fusion?: JobScaleFusionMeta;
+      reconstruction?: JobReconstructionMeta;
+    };
   } | null;
   error: { code: string; message: string } | null;
 };

@@ -40,6 +40,8 @@ export function HomePage() {
   const [step, setStep] = useState<0 | 1 | 2>(0);
   const [knows, setKnows] = useState<'yes' | 'no' | null>(null);
   const [refWeight, setRefWeight] = useState('');
+  const [captureMode, setCaptureMode] = useState<'single' | 'multiview'>('single');
+  const [singleFile, setSingleFile] = useState<File | undefined>();
   const [files, setFiles] = useState<Partial<Record<(typeof VIEWS)[number], File>>>({});
   const [metal, setMetal] = useState('gold');
   const [purity, setPurity] = useState('18k');
@@ -74,15 +76,19 @@ export function HomePage() {
     setBusy(true);
     setJob(null);
     try {
-      for (const v of VIEWS) {
-        if (!files[v]) {
-          throw new Error(`${VIEW_LABEL[v]} 이미지를 선택하세요.`);
+      const fd = new FormData();
+      if (captureMode === 'single') {
+        if (!singleFile) throw new Error('사진을 선택하세요.');
+        fd.append('image', singleFile);
+      } else {
+        for (const v of VIEWS) {
+          if (!files[v]) throw new Error(`${VIEW_LABEL[v]} 이미지를 선택하세요.`);
+        }
+        for (const v of VIEWS) {
+          fd.append(v, files[v]!);
         }
       }
-      const fd = new FormData();
-      for (const v of VIEWS) {
-        fd.append(v, files[v]!);
-      }
+      fd.append('capture_mode', captureMode);
       fd.append('metal', metal);
       fd.append('purity', purity);
       fd.append('product_k', product);
@@ -105,6 +111,8 @@ export function HomePage() {
   const tier = job?.result?.confidence_tier;
   const hideQuote = tier === 'low';
   const sanity = job?.result?.meta?.sanity;
+  const fusion = job?.result?.meta?.scale_fusion;
+  const recon = job?.result?.meta?.reconstruction;
   const massG = job?.result?.mass_est_g;
   const hideMass =
     Boolean(sanity?.suppress_mass_display) ||
@@ -133,13 +141,13 @@ export function HomePage() {
         <section>
           <h2>촬영·업로드 전 체크</h2>
           <ul style={{ color: '#334155' }}>
-            <li>신용카드와 귀금속을 <strong>같은 바닥 면</strong>에 둡니다.</li>
             <li>
-              <strong>카드 위에 올리지 마세요.</strong> 카드 옆에 나란히 두세요. (카드 위에 두면 분석이 크게 어긋날 수
-              있습니다.)
+              <strong>신용카드를 함께 찍어 주세요.</strong> 카드는 크기가 규격(85.6×54mm)으로 정해져 있어
+              사진 속 실제 크기를 재는 <strong>기준자</strong>가 됩니다. 없으면 정확도가 크게 떨어집니다.
             </li>
+            <li>카드와 귀금속을 <strong>같은 바닥 면</strong>에 나란히 둡니다.</li>
+            <li>카드가 살짝 <strong>비스듬히</strong> 보이게 찍으면 거리 추정이 더 정확해집니다.</li>
             <li>저울 위에 올린 상태로 찍지 않습니다.</li>
-            <li>각도별로 <strong>파일을 준비</strong>해 업로드합니다 (인앱 카메라 v1 제외).</li>
           </ul>
           {knows === 'yes' && (
             <label style={{ display: 'block', marginTop: '1rem' }}>
@@ -161,19 +169,49 @@ export function HomePage() {
 
       {step === 2 && (
         <section>
-          <h2>각도별 이미지 업로드</h2>
+          <h2>이미지 업로드</h2>
+          <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', fontSize: '0.92rem' }}>
+            <label>
+              <input
+                type="radio"
+                checked={captureMode === 'single'}
+                onChange={() => setCaptureMode('single')}
+              />{' '}
+              사진 1장 <span style={{ color: '#64748b' }}>(기본)</span>
+            </label>
+            <label>
+              <input
+                type="radio"
+                checked={captureMode === 'multiview'}
+                onChange={() => setCaptureMode('multiview')}
+              />{' '}
+              5방향 <span style={{ color: '#64748b' }}>(고신뢰)</span>
+            </label>
+          </div>
           <div style={{ display: 'grid', gap: '0.75rem', marginBottom: '1rem' }}>
-            {VIEWS.map((v) => (
-              <label key={v} style={{ display: 'block' }}>
-                {VIEW_LABEL[v]}
+            {captureMode === 'single' ? (
+              <label style={{ display: 'block' }}>
+                귀금속 + 신용카드가 함께 나온 사진
                 <input
                   type="file"
                   accept="image/*"
-                  onChange={(e) => onFile(v, e.target.files?.[0])}
+                  onChange={(e) => setSingleFile(e.target.files?.[0])}
                   style={{ display: 'block', marginTop: '0.25rem' }}
                 />
               </label>
-            ))}
+            ) : (
+              VIEWS.map((v) => (
+                <label key={v} style={{ display: 'block' }}>
+                  {VIEW_LABEL[v]}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => onFile(v, e.target.files?.[0])}
+                    style={{ display: 'block', marginTop: '0.25rem' }}
+                  />
+                </label>
+              ))
+            )}
           </div>
           <div style={{ display: 'grid', gap: '0.5rem', maxWidth: 320, marginBottom: '1rem' }}>
             <label>
@@ -253,6 +291,46 @@ export function HomePage() {
                 <p>
                   범위: {job.result.mass_range.min_g.toFixed(2)} ~ {job.result.mass_range.max_g.toFixed(2)} g
                 </p>
+              )}
+              {(fusion || recon) && (
+                <div
+                  style={{
+                    marginTop: '0.75rem',
+                    padding: '0.6rem 0.75rem',
+                    background: '#f8fafc',
+                    borderRadius: 6,
+                    fontSize: '0.85rem',
+                    color: '#334155',
+                  }}
+                >
+                  <strong style={{ display: 'block', marginBottom: '0.35rem' }}>측정값</strong>
+                  {fusion?.card_distance_mm != null && (
+                    <div>
+                      카드까지 거리: {fusion.card_distance_mm.toFixed(0)} mm
+                      {fusion.depth_rmse_mm != null && (
+                        <span style={{ color: '#64748b' }}>
+                          {' '}(거리 오차 ±{fusion.depth_rmse_mm.toFixed(1)} mm)
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {recon?.length_mm != null && recon?.width_mm != null && (
+                    <div>
+                      실제 크기: {recon.length_mm.toFixed(1)} × {recon.width_mm.toFixed(1)} mm
+                    </div>
+                  )}
+                  {recon?.h_mean_mm != null && (
+                    <div>
+                      평균 두께: {recon.h_mean_mm.toFixed(1)} mm
+                      {recon.thickness_clamp && (
+                        <span style={{ color: '#b45309' }}> (관측 실패 — 기준값 가정)</span>
+                      )}
+                    </div>
+                  )}
+                  {fusion?.anchor_used === false && (
+                    <div style={{ color: '#b45309' }}>기준물(신용카드) 없이 추정한 값입니다.</div>
+                  )}
+                </div>
               )}
               {sanity?.warnings && sanity.warnings.length > 0 && (
                 <ul style={{ color: '#92400e', fontSize: '0.9rem', marginTop: '0.5rem' }}>

@@ -10,7 +10,12 @@ import { createPool, Pool, RowDataPacket } from 'mysql2/promise';
 import Redis from 'ioredis';
 import { v4 as uuidv4 } from 'uuid';
 import { VIEW_KEYS } from '../common/views';
-import type { CreateJobFormFields, UploadsByView } from './jobs.types';
+import {
+  SINGLE_IMAGE_FIELD,
+  type CaptureMode,
+  type CreateJobFormFields,
+  type JobUploadFiles,
+} from './jobs.types';
 
 const ALLOWED_IMAGE_MIME = /^image\/(jpeg|jpg|png|webp)$/i;
 
@@ -51,36 +56,68 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     this.redis?.disconnect();
   }
 
-  async createFromUpload(files: UploadsByView, body: CreateJobFormFields) {
-    const jobId = uuidv4();
-    const views: Record<string, string> = {};
-    for (const v of VIEW_KEYS) {
-      const file = files[v][0];
-      const mime = file.mimetype || '';
-      if (!ALLOWED_IMAGE_MIME.test(mime)) {
-        throw new BadRequestException(
-          `Field "${v}": allowed image/jpeg, image/png, image/webp (got ${mime || 'empty'})`,
-        );
-      }
-      const ext =
-        mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
-      const key = `uploads/${jobId}/${v}.${ext}`;
-      await this.s3.send(
-        new PutObjectCommand({
-          Bucket: this.bucket,
-          Key: key,
-          Body: file.buffer,
-          ContentType: file.mimetype || 'image/jpeg',
-        }),
+  /** 파일 1개를 S3 에 올리고 key 를 돌려준다. MIME 검증 포함. */
+  private async putImage(
+    jobId: string,
+    field: string,
+    file: Express.Multer.File,
+  ): Promise<string> {
+    const mime = file.mimetype || '';
+    if (!ALLOWED_IMAGE_MIME.test(mime)) {
+      throw new BadRequestException(
+        `Field "${field}": allowed image/jpeg, image/png, image/webp (got ${mime || 'empty'})`,
       );
-      views[v] = key;
     }
+    const ext = mime.includes('png')
+      ? 'png'
+      : mime.includes('webp')
+        ? 'webp'
+        : 'jpg';
+    const key = `uploads/${jobId}/${field}.${ext}`;
+    await this.s3.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: file.buffer,
+        ContentType: mime || 'image/jpeg',
+      }),
+    );
+    return key;
+  }
+
+  async createFromUpload(
+    files: JobUploadFiles,
+    captureMode: CaptureMode,
+    body: CreateJobFormFields,
+  ) {
+    const jobId = uuidv4();
+
+    // worker `JobInputRecord` 와 동일한 형태로 저장한다.
+    // 단일 모드는 image, 다뷰 모드는 views 만 채운다.
+    let image: string | null = null;
+    let views: Record<string, string> | null = null;
+
+    if (captureMode === 'multiview') {
+      views = {};
+      for (const v of VIEW_KEYS) {
+        views[v] = await this.putImage(jobId, v, files[v]![0]);
+      }
+    } else {
+      image = await this.putImage(
+        jobId,
+        SINGLE_IMAGE_FIELD,
+        files[SINGLE_IMAGE_FIELD]![0],
+      );
+    }
+
     let ref: number | null = null;
     if (body.reference_weight_g != null && body.reference_weight_g !== '') {
       const n = parseFloat(String(body.reference_weight_g));
       ref = Number.isFinite(n) ? n : null;
     }
     const input = {
+      capture_mode: captureMode,
+      image,
       views,
       metal: (body.metal || 'gold').toLowerCase(),
       purity: (body.purity || '18k').toLowerCase(),

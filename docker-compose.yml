@@ -116,6 +116,12 @@ services:
     environment:
       <<: *app_db
       PORT: 3000
+      # 시세·견적 (계획서 Step 2-1). 로컬 기본은 고정 표 — 항상 stale 로 표시된다.
+      PRICE_BACKEND: ${PRICE_BACKEND:-static}
+      PRICE_TABLE_KRW_PER_GRAM: ${PRICE_TABLE_KRW_PER_GRAM:-{"gold:24k":118000,"gold:18k":86000,"gold:14k":66000,"silver:sterling":1400,"platinum:pt950":52000}}
+      PRICE_API_URL: ${PRICE_API_URL:-}
+      PRICE_API_KEY: ${PRICE_API_KEY:-}
+      PRICE_BUY_RATE: ${PRICE_BUY_RATE:-1}
     depends_on:
       mysql:
         condition: service_healthy

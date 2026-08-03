@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { getJob, postJob, type JobDto } from '../api';
+import { getJob, isQuoteSuppressed, postJob, type JobDto } from '../api';
 
 const VIEWS = ['front', 'top', 'left', 'right', 'back'] as const;
 const VIEW_LABEL: Record<(typeof VIEWS)[number], string> = {
@@ -181,6 +181,8 @@ export function HomePage() {
   const sanity = job?.result?.meta?.sanity;
   const fusion = job?.result?.meta?.scale_fusion;
   const recon = job?.result?.meta?.reconstruction;
+  const quote = job?.quote ?? null;
+  const won = (v: number) => v.toLocaleString('ko-KR');
   const massG = job?.result?.mass_est_g;
   const hideMass =
     Boolean(sanity?.suppress_mass_display) ||
@@ -454,13 +456,33 @@ export function HomePage() {
                   저신뢰 사유: {job.result.meta.workflow.degraded_reasons.join(', ')}
                 </p>
               ) : null}
-              {hideQuote ? (
-                <p className="msg-warn--soft" style={{ marginTop: '0.75rem' }}>
-                  신뢰도가 낮아 참고 시세·원화 견적은 표시하지 않습니다.
-                </p>
+              {quote && !isQuoteSuppressed(quote) ? (
+                <div className="notice notice--tips" style={{ marginTop: '0.75rem' }}>
+                  <p className="notice__title">예상 견적</p>
+                  <p style={{ margin: '0.25rem 0' }}>
+                    <strong style={{ fontSize: '1.2rem', color: 'var(--gold-deep)' }}>
+                      {won(quote.estimate)} 원
+                    </strong>
+                    {quote.min != null && quote.max != null ? (
+                      <span className="text-small"> ({won(quote.min)} ~ {won(quote.max)} 원)</span>
+                    ) : null}
+                  </p>
+                  <p className="text-small" style={{ margin: 0 }}>
+                    적용 시세 {won(quote.krwPerGram)} 원/g
+                    {quote.buyRate < 1 ? ` · 매입률 ${(quote.buyRate * 100).toFixed(0)}%` : ''}
+                    {' · '}
+                    {quote.source}
+                    {quote.stale ? ' (실시간 아님)' : ''}
+                  </p>
+                  <p className="text-small" style={{ margin: '0.35rem 0 0' }}>{quote.disclaimer}</p>
+                </div>
               ) : (
-                <p className="text-muted" style={{ marginTop: '0.75rem' }}>
-                  시세 연동 전 — 금액 견적 UI는 추후 연결합니다.
+                <p className="msg-warn--soft" style={{ marginTop: '0.75rem' }}>
+                  {quote && isQuoteSuppressed(quote)
+                    ? quote.message
+                    : hideQuote
+                      ? '신뢰도가 낮아 참고 시세·원화 견적은 표시하지 않습니다.'
+                      : '시세를 가져오지 못해 금액을 표시하지 않습니다.'}
                 </p>
               )}
             </>

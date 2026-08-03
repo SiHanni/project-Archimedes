@@ -55,6 +55,32 @@ export type JobReconstructionMeta = {
   thickness_clamp?: string | null;
 };
 
+/** api `pricing/quote.ts` — 시세×무게 견적 (§14.1 게이팅으로 숨겨질 수 있음) */
+export type JobQuote =
+  | {
+      suppressed: true;
+      reason: 'low_confidence' | 'mass_suppressed' | 'no_price';
+      message: string;
+    }
+  | {
+      currency: 'KRW';
+      krwPerGram: number;
+      buyRate: number;
+      estimate: number;
+      min: number | null;
+      max: number | null;
+      source: string;
+      asOf: string;
+      stale: boolean;
+      disclaimer: string;
+    };
+
+export function isQuoteSuppressed(
+  q: JobQuote,
+): q is Extract<JobQuote, { suppressed: true }> {
+  return (q as { suppressed?: boolean }).suppressed === true;
+}
+
 export type JobDto = {
   id: string;
   status: string;
@@ -81,4 +107,5 @@ export type JobDto = {
     errorSeverity?: 'soft' | 'hard';
     suggestedAction?: string | null;
   } | null;
+  quote?: JobQuote | null;
 };

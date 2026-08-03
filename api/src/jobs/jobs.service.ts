@@ -10,6 +10,8 @@ import { createPool, Pool, RowDataPacket } from 'mysql2/promise';
 import Redis from 'ioredis';
 import { v4 as uuidv4 } from 'uuid';
 import { VIEW_KEYS } from '../common/views';
+import { PricingService } from '../pricing/pricing.service';
+import { buildQuote } from '../pricing/quote';
 import {
   SINGLE_IMAGE_FIELD,
   type CaptureMode,
@@ -21,6 +23,8 @@ const ALLOWED_IMAGE_MIME = /^image\/(jpeg|jpg|png|webp)$/i;
 
 @Injectable()
 export class JobsService implements OnModuleInit, OnModuleDestroy {
+  constructor(private readonly pricing: PricingService) {}
+
   private pool!: Pool;
   private redis!: Redis;
   private s3!: S3Client;
@@ -171,6 +175,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
           ? 'retry_one_view'
           : null;
     const mergedRetryViews = retryViews.length ? retryViews : retryStep ? [retryStep] : [];
+    const quote = await this.buildQuoteFor(parseJson(r.input_json), resultObj);
     return {
       id: r.id,
       status: r.status,
@@ -187,9 +192,36 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
               suggestedAction,
             }
           : null,
+      quote,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
     };
+  }
+
+  /**
+   * 견적은 **조회 시점**에 계산한다. 시세는 계속 변하므로 job 결과에 굳혀 두면
+   * 오래된 금액이 남는다. 무게(추정)와 금액(시세)의 수명이 다르다.
+   */
+  private async buildQuoteFor(input: unknown, result: Record<string, unknown> | null) {
+    if (!result || typeof result.mass_est_g !== 'number') return null;
+    const inp = (input ?? {}) as Record<string, unknown>;
+    const metal = String(inp.metal ?? 'gold').toLowerCase();
+    const purity = String(inp.purity ?? '18k').toLowerCase();
+
+    const meta = (result.meta ?? {}) as Record<string, unknown>;
+    const sanity = (meta.sanity ?? {}) as Record<string, unknown>;
+
+    const spot = await this.pricing.getSpot(metal, purity);
+    return buildQuote(
+      {
+        massEstG: result.mass_est_g as number,
+        massRange: (result.mass_range ?? null) as never,
+        confidenceTier: String(result.confidence_tier ?? 'low'),
+        suppressMassDisplay: sanity.suppress_mass_display === true,
+      },
+      spot,
+      this.pricing.buyRate,
+    );
   }
 
   async upsertMassFeedback(jobId: string, actualMassG: number, notes: string | null) {

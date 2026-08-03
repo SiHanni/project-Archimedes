@@ -35,6 +35,8 @@ jobs:
           node-version: "20"
       - run: npm install
       - run: npm run build
+      # 견적 노출 정책(§14.1)은 순수 함수라 외부 의존 없이 검증된다
+      - run: npm test
 
   web:
     runs-on: ubuntu-latest

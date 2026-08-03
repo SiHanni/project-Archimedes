@@ -120,6 +120,24 @@ ruff check app tests
 
 **실측 피드백 → Hollow α 제안**: `POST /v1/jobs/{id}/feedback` 후 `python worker/scripts/calibration_suggest.py` — `jobs/README.md`.
 
+## 시세·견적 (계획서 Step 2-1)
+
+`GET /v1/jobs/:id` 응답에 `quote` 가 함께 온다. 시세는 계속 변하므로 job 결과에
+굳히지 않고 **조회 시점**에 계산한다.
+
+```bash
+PRICE_BACKEND=static   # 고정 표(오프라인·데모, 항상 stale 표시)
+PRICE_TABLE_KRW_PER_GRAM='{"gold:24k":118000,"gold:18k":86000}'
+# 또는
+PRICE_BACKEND=http
+PRICE_API_URL=https://.../spot   # ?metal=&purity= 로 호출, 응답에서 g당 원화를 읽음
+PRICE_BUY_RATE=0.95              # 소매 시세 대비 매입률(선택)
+```
+
+노출 정책(§14.1): `confidence_tier=low` 이거나 무게 표시가 억제된 job 은
+**금액을 아예 내지 않는다**. 시세를 못 가져와도 0원이 아니라 사유와 함께 생략한다.
+시세만 따로 보려면 `GET /v1/pricing/spot?metal=gold&purity=18k`.
+
 **평가 지표 (계획서 평가표 3·4)**: `python worker/scripts/evaluate_rmse.py` — 제품 형태별 중량 RMSE·MAPE·bias 와 앵커 홀드아웃 거리 RMSE.
 
 ## 백엔드 교체 (ONNX)
@@ -143,6 +161,7 @@ export ARCHIMEDES_DEPTH_OUTPUT_KIND=metric  # metric | affine_invariant | relati
 - 깊이·검출·분할 **실제 모델 미탑재** — 스텁은 두께를 관측하지 못해 제품 기준값으로 클램프한다(결과에 명시됨).
 - α·두께 계수는 **물리적 근거에서 출발한 초기값**. 실측이 쌓이면 §4.4 학습형 잔차로 이행.
 - 골든 실사진 없음 — `golden/README.md` 절차대로 내부 구성 필요.
+- 시세 기본값은 **고정 표**(항상 `stale`). 실시간 소스는 `PRICE_BACKEND=http` 로 연결.
 - OTEL은 endpoint 설정 시에만 활성.
 
 ## 라이선스

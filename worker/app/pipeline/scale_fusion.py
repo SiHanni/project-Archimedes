@@ -117,7 +117,10 @@ def solve_card_plane(card: CardGeometry, K: Intrinsics) -> tuple[np.ndarray, flo
             break
     if rvec is None or tvec is None:
         raise PipelineError(
-            "ERR_ANCHOR_AMBIGUOUS", "Card plane pose could not be solved from the quad"
+            "ERR_ANCHOR_AMBIGUOUS",
+            "Card plane pose could not be solved from the quad",
+            error_severity="soft",
+            suggested_action="retake_photo",
         )
 
     R, _ = cv2.Rodrigues(rvec)
@@ -184,6 +187,8 @@ def fuse_scale(
                 "ERR_SCALE_UNRESOLVED",
                 f"Anchor required but unavailable ({reason}). "
                 "신용카드를 귀금속과 같은 바닥에 함께 두고 다시 촬영해 주세요.",
+                error_severity="soft",
+                suggested_action="retake_photo",
             )
         if depth.kind is not DepthKind.METRIC:
             raise PipelineError(
@@ -191,6 +196,8 @@ def fuse_scale(
                 f"Depth backend is {depth.kind.value} (scale undetermined) and no anchor "
                 f"is available ({reason}). 신용카드를 함께 놓고 촬영하거나 metric depth "
                 f"백엔드를 사용해 주세요.",
+                error_severity="soft",
+                suggested_action="retake_photo",
             )
         return ScaleFusionResult(
             depth_mm=depth.depth.astype(np.float32),

@@ -77,6 +77,8 @@ def refine_jewel_mask(
             f"on_card={candidates[1][2]:.5f} of frame). "
             "귀금속이 프레임에 충분히 크게, 선명히 보이도록 다시 촬영해 주세요.",
             retry_step=view,
+            error_severity="soft",
+            suggested_action="retake_photo",
         )
     # 둘 다 유효하면 더 작은 쪽 — 배경·카드 과포함을 피한다
     valid.sort(key=lambda c: c[2])

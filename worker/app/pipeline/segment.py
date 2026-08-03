@@ -146,7 +146,7 @@ def _jewel_mask_heuristic(bgr: np.ndarray, card: CardGeometry, view: str) -> tup
         # subtract 마스크의 중심(중앙값 픽셀)이 카드 inner 밖이면 실물은 옆에 둔 경우가 많다.
         if "subtract_card" in by_name and "on_card_inner" in by_name:
             n_sub, jm_sub, f_sub = by_name["subtract_card"]
-            n_on, jm_on, f_on = by_name["on_card_inner"]
+            _n_on, _jm_on, f_on = by_name["on_card_inner"]
             if not _mask_centroid_in_region(jm_sub, inner):
                 name, jm, fr = n_sub, jm_sub, f_sub
             else:

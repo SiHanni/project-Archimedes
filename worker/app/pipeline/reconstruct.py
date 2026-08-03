@@ -209,6 +209,8 @@ def reconstruct_from_depth(
             "ERR_DEPTH_FAILED",
             f"Only {z.size} valid depth points inside the jewelry mask "
             f"(need >= {_MIN_POINTS}). 물체가 선명히 보이도록 다시 촬영해 주세요.",
+            error_severity="soft",
+            suggested_action="retake_photo",
         )
 
     area = projected_area_mm2(z, K)

@@ -51,6 +51,8 @@ def _intersect_axis(
             f"{current} ∩ ({lo:.2f}, {hi:.2f}) is empty. "
             "각도별로 서로 다른 사진인지, 촬영 규약(정면/상/좌/우/후)에 맞는지 확인해 주세요.",
             retry_step=view,
+            error_severity="soft",
+            suggested_action="retry_one_view",
         )
     return (lo2, hi2)
 

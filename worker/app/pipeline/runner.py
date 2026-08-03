@@ -43,26 +43,61 @@ def _sanity_mass_cap_g(product_k: str, settings: Settings) -> float:
     return min(float(settings.sanity_max_mass_g), per)
 
 
-def _check_sigma_consistency(sigmas: dict[str, float], ratio: float, settings: Settings) -> None:
+# σ 가 중앙값 대비 이 배수를 넘으면 촬영 거리 차이로는 설명되지 않는다
+# = 카드가 아닌 다른 사각형을 잡았다고 본다. 이때만 거절한다.
+_SIGMA_ABSURD_RATIO = 4.0
+
+
+def _sigma_consistency(sigmas: dict[str, float], warn_ratio: float) -> tuple[float, list[str]]:
+    """
+    뷰별 σ 의 흩어짐을 **보고**한다. 거절하지 않는다.
+
+    σ 는 각 컷의 카드 크기로 따로 계산되므로 컷마다 다른 것이 **정상**이고,
+    mm 변환에서 이미 보정된다. 실측상 손각대 5뷰는 카드 크기가 2배 가까이
+    차이 나며, 그건 사용자가 잘못한 게 아니다.
+
+    이전에는 ±8% 를 넘으면 거절했는데, 그 임계값은 σ 가 상수로 고정돼 있던
+    시절의 값이라 한 번도 발동한 적이 없었다. σ 를 고치자 정상 촬영을 전부
+    막아 버렸다.
+
+    Returns (최대 상대편차, 경고 임계를 넘은 뷰 목록).
+    """
     vals = list(sigmas.values())
     med = statistics.median(vals)
     if med <= 0:
-        raise PipelineError("ERR_SCALE_MISMATCH", "Invalid sigma median", retry_step=None)
-    for v, s in sigmas.items():
-        if abs(s - med) / med > ratio:
-            # 뷰마다 카드가 다른 크기로 찍혔다는 뜻 = 촬영 거리가 제각각이다.
-            # 원인이 사용자 행동에 있으므로 숫자만 던지지 말고 무엇을 고쳐야 하는지 적는다.
-            size_ratio = s / med
+        raise PipelineError(
+            "ERR_SCALE_MISMATCH",
+            "카드 스케일을 계산하지 못했습니다. 카드가 선명히 보이게 다시 찍어 주세요.",
+            error_severity="soft",
+            suggested_action="retry_one_view",
+        )
+
+    max_dev = 0.0
+    outliers: list[str] = []
+    for v, sv in sigmas.items():
+        dev = abs(sv - med) / med
+        max_dev = max(max_dev, dev)
+        if sv / med > _SIGMA_ABSURD_RATIO or med / sv > _SIGMA_ABSURD_RATIO:
             raise PipelineError(
                 "ERR_SCALE_MISMATCH",
-                f"'{v}' 컷의 촬영 거리가 다른 컷과 많이 다릅니다"
-                f"(카드 크기 기준 약 {size_ratio:.1f}배). "
-                f"5장을 **같은 높이·같은 거리**에서 찍어 주세요. "
-                f"(내부값 sigma={s:.5f}, 중앙값={med:.5f})",
+                f"'{v}' 컷에서 카드가 아닌 다른 사각형을 잡은 것 같습니다"
+                f"(다른 컷 대비 약 {sv / med:.1f}배). "
+                "카드 전체가 잘리지 않고 또렷하게 나오도록 다시 찍어 주세요.",
                 retry_step=v,
                 error_severity="soft",
                 suggested_action="retry_one_view",
             )
+        if dev > warn_ratio:
+            outliers.append(v)
+    return max_dev, outliers
+
+
+# 5뷰 기하가 깨졌을 때 단일사진 경로로 쓸 컷의 우선순위.
+# 상단 뷰가 물체의 바닥 면적을 가장 잘 보여 준다.
+_SINGLE_FALLBACK_ORDER = ("top", "front", "back", "left", "right")
+
+# 다뷰 기하 실패 중 "한 장으로 재시도"가 의미 있는 코드
+_GEOMETRY_FAILURE_CODES = frozenset({"ERR_VOLUME", "ERR_SCALE_MISMATCH"})
 
 
 def run_pipeline(
@@ -71,9 +106,64 @@ def run_pipeline(
     images: dict[str, bytes],
     settings: Settings,
 ) -> dict[str, Any]:
-    if inp.capture_mode == "multiview":
+    if inp.capture_mode != "multiview":
+        return _run_single(job_id, inp, images, settings)
+
+    try:
         return _run_multiview(job_id, inp, images, settings)
-    return _run_single(job_id, inp, images, settings)
+    except PipelineError as e:
+        if e.code not in _GEOMETRY_FAILURE_CODES:
+            raise
+        # 5뷰 기하는 촬영 규약(정면/상/좌/우/후를 정확한 축으로)을 지켜야 성립한다.
+        # 손각대로는 자주 깨지는데, 그때 사용자를 빈손으로 돌려보낼 이유가 없다.
+        # 가장 쓸모 있는 한 컷으로 단일사진 경로를 돌리고 그 사실을 밝힌다.
+        return _fallback_single_from_views(job_id, inp, images, settings, e)
+
+
+def _fallback_single_from_views(
+    job_id: str,
+    inp: JobInputRecord,
+    images: dict[str, bytes],
+    settings: Settings,
+    cause: PipelineError,
+) -> dict[str, Any]:
+    for view in _SINGLE_FALLBACK_ORDER:
+        raw = images.get(view)
+        if raw is None:
+            continue
+        try:
+            out = _run_single(job_id, inp, {SINGLE_VIEW_KEY: raw}, settings)
+        except PipelineError:
+            continue
+
+        meta = out.setdefault("meta", {})
+        meta["capture_mode"] = "multiview_fallback_single"
+        meta["multiview_fallback"] = {
+            "used_view": view,
+            "cause_code": cause.code,
+            "cause_message": str(cause),
+        }
+        wf = meta.setdefault("workflow", {})
+        reasons = list(wf.get("degraded_reasons") or [])
+        reasons.append(f"multiview_geometry_failed:{cause.code}")
+        wf["degraded_reasons"] = reasons
+        wf["error_severity"] = "soft"
+        wf["suggested_action"] = "retry_one_view"
+        wf["retry_views"] = cause.retry_views or [view]
+
+        sanity = meta.setdefault("sanity", {})
+        warnings = list(sanity.get("warnings") or [])
+        warnings.insert(
+            0,
+            f"5방향 사진의 각도가 서로 맞지 않아 '{view}' 한 장만으로 분석했습니다. "
+            "정확도가 떨어지니, 각 슬롯에 맞는 각도로 다시 찍거나 "
+            "'사진 1장' 모드를 이용해 주세요.",
+        )
+        sanity["warnings"] = warnings
+        return out
+
+    # 어느 컷으로도 안 되면 원래 기하 실패를 그대로 알린다
+    raise cause
 
 
 # ══════════════════════════ v2 — 단일 사진 ══════════════════════════
@@ -338,7 +428,7 @@ def _run_multiview(
         placement_by_view[view] = seg_meta.get("placement_mode", "subtract_card")
         bboxes[view] = jewel_bbox_uv_mm(mask, card, view)
 
-    _check_sigma_consistency(sigmas, settings.scale_mismatch_ratio, settings)
+    sigma_max_dev, sigma_outliers = _sigma_consistency(sigmas, settings.scale_mismatch_ratio)
 
     # 슬랩 교집합에서 손각대 오차로 붙인 축이 있으면 기록해 둔다
     relaxed_axes: list[str] = []
@@ -370,7 +460,8 @@ def _run_multiview(
 
     # 카드 폴백·비현실적 무게 → 신뢰도 하한(§14.1 견적 게이팅과 정합)
     quality_ok = (len(fallback_views) == 0) and (not implausible_mass)
-    scale_tight = len(fallback_views) == 0
+    # σ 가 크게 흩어졌다 = 카드 검출이 흔들렸을 수 있다 → 거절 대신 신뢰도 감점
+    scale_tight = len(fallback_views) == 0 and not sigma_outliers
     coarse_model = vol_est.volume_model != "voxel_carve"
 
     cstate = conf_mod.ConfidenceState(
@@ -414,6 +505,11 @@ def _run_multiview(
         sanity_meta["warnings"].append(
             "일부 뷰에서 카드를 자동으로 가정했습니다. 카드가 선명히 보이는 사진으로 다시 시도해 주세요."
         )
+    if sigma_outliers:
+        sanity_meta["warnings"].append(
+            f"{', '.join(sigma_outliers)} 컷의 촬영 거리가 서로 많이 달라 신뢰도를 낮췄습니다"
+            f"(분석은 진행했습니다). 5장을 비슷한 거리에서 찍으면 정확도가 올라갑니다."
+        )
     if implausible_mass:
         sanity_meta["warnings"].append(
             f"추정 무게가 비현실적으로 큽니다(상한 {mass_cap_g:.0f} g 초과). "
@@ -439,6 +535,7 @@ def _run_multiview(
         degraded_reasons.append("multires_penalty")
     # 손각대 오차로 슬랩 구간을 붙인 축이 있으면 그 사실을 남긴다(조용히 넘어가지 않음)
     degraded_reasons.extend(f"slab_relaxed:{r}" for r in relaxed_axes)
+    degraded_reasons.extend(f"scale_spread:{v}" for v in sigma_outliers)
 
     retry_views = sorted(set(fallback_views))[:2]
 
@@ -468,6 +565,11 @@ def _run_multiview(
                 "layout_correction": layout_detail,
             },
             "sigmas_mm_per_px": {k: round(v, 6) for k, v in sigmas.items()},
+            "sigma_spread": {
+                "max_relative_deviation": round(sigma_max_dev, 4),
+                "warn_ratio": settings.scale_mismatch_ratio,
+                "outlier_views": sigma_outliers,
+            },
             "exif": exif_meta,
             "volume_model": vol_est.volume_model,
             "sanity": sanity_meta,

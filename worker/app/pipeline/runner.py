@@ -340,6 +340,10 @@ def _run_multiview(
 
     _check_sigma_consistency(sigmas, settings.scale_mismatch_ratio, settings)
 
+    # 슬랩 교집합에서 손각대 오차로 붙인 축이 있으면 기록해 둔다
+    relaxed_axes: list[str] = []
+    voxel_mod.slab_aabb_intervals_mm(bboxes, relaxed_out=relaxed_axes)
+
     view_items = [(v, masks[v], cards[v]) for v in VIEW_ORDER]
     vol_est = voxel_mod.estimate_volume(
         bboxes,
@@ -433,6 +437,8 @@ def _run_multiview(
         degraded_reasons.append("implausible_mass")
     if vol_est.multires_penalty:
         degraded_reasons.append("multires_penalty")
+    # 손각대 오차로 슬랩 구간을 붙인 축이 있으면 그 사실을 남긴다(조용히 넘어가지 않음)
+    degraded_reasons.extend(f"slab_relaxed:{r}" for r in relaxed_axes)
 
     retry_views = sorted(set(fallback_views))[:2]
 

@@ -164,8 +164,11 @@ def detect_card_quad(bgr: np.ndarray, view: str) -> np.ndarray:
     if quad is None:
         raise PipelineError(
             "ERR_CARD_NOT_FOUND",
-            "Card quadrilateral not detected",
+            f"'{view}' 컷에서 신용카드를 찾지 못했습니다. 카드 전체가 잘리지 않게, "
+            "배경과 구분되도록(어두운 바닥 위 등) 다시 찍어 주세요.",
             retry_step=view,
+            error_severity="soft",
+            suggested_action="retry_one_view",
         )
     return order_quad_points(quad)
 

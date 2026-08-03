@@ -25,11 +25,18 @@ class VolumeEstimate:
     grid_n: int | None = None
 
 
+# 손각대 5뷰는 축 정렬이 완벽할 수 없다. 구간이 살짝 어긋난 정도는 중간값으로
+# 붙여 주고, 그 사실을 degraded 로 남긴다. 이 여유가 없으면 실사용에서
+# 정상 촬영도 ERR_VOLUME 으로 떨어진다.
+_INTERSECT_TOLERANCE = 0.35
+
+
 def _intersect_axis(
     current: tuple[float, float] | None,
     new: tuple[float, float],
     axis: str,
     view: str,
+    relaxed: list[str] | None = None,
 ) -> tuple[float, float]:
     """
     누적 구간 ∩ 새 구간.
@@ -45,11 +52,21 @@ def _intersect_axis(
     lo2 = max(current[0], lo)
     hi2 = min(current[1], hi)
     if lo2 >= hi2:
+        # 얼마나 벌어졌나 — 두 구간 중 작은 폭 대비
+        gap = lo2 - hi2
+        span = min(current[1] - current[0], hi - lo)
+        if span > 0 and gap <= _INTERSECT_TOLERANCE * span:
+            mid = 0.5 * (lo2 + hi2)
+            half = 0.5 * max(span * (1.0 - _INTERSECT_TOLERANCE), 1e-3)
+            if relaxed is not None:
+                relaxed.append(f"{axis}:{view}")
+            return (mid - half, mid + half)
         raise PipelineError(
             "ERR_VOLUME",
-            f"View '{view}' contradicts other views on axis {axis}: "
-            f"{current} ∩ ({lo:.2f}, {hi:.2f}) is empty. "
-            "각도별로 서로 다른 사진인지, 촬영 규약(정면/상/좌/우/후)에 맞는지 확인해 주세요.",
+            f"'{view}' 컷이 다른 컷들과 {axis} 축에서 크게 어긋납니다. "
+            "각 슬롯에 맞는 각도의 사진인지(정면/상단/좌/우/후면), "
+            "그리고 5장이 같은 물체인지 확인해 주세요. "
+            f"(내부값 {current} ∩ ({lo:.2f}, {hi:.2f}) = 공집합)",
             retry_step=view,
             error_severity="soft",
             suggested_action="retry_one_view",
@@ -59,6 +76,7 @@ def _intersect_axis(
 
 def slab_aabb_intervals_mm(
     bboxes: dict[str, tuple[float, float, float, float]],
+    relaxed_out: list[str] | None = None,
 ) -> tuple[tuple[float, float], tuple[float, float], tuple[float, float]]:
     """
     bboxes[view] = (u_min, u_max, v_min, v_max) in mm (`geometry_g1` 규칙)
@@ -67,12 +85,13 @@ def slab_aabb_intervals_mm(
     뷰→월드 축 매핑은 `view_axes.VIEW_AXIS_MAP` 단일 소스를 따른다.
     """
     acc: dict[str, tuple[float, float] | None] = {"x": None, "y": None, "z": None}
+    relaxed = relaxed_out if relaxed_out is not None else []
 
     for view in VIEW_ORDER:
         if view not in bboxes:
             continue
         for axis, interval in view_world_intervals(view, bboxes[view]).items():
-            acc[axis] = _intersect_axis(acc[axis], interval, axis, view)
+            acc[axis] = _intersect_axis(acc[axis], interval, axis, view, relaxed)
 
     missing = [a for a in ("x", "y", "z") if acc[a] is None]
     if missing:

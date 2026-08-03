@@ -236,3 +236,38 @@ def test_sample_mask_treats_out_of_frame_as_outside() -> None:
     py = np.array([5.0, 5.0, 5.0, 99.0])
     got = sample_mask(mask, px, py)
     assert got.tolist() == [True, False, False, False]
+
+
+# ───────────────── 손각대 허용 오차 ─────────────────
+
+
+def test_small_axis_mismatch_is_relaxed_not_rejected() -> None:
+    """
+    손각대 5뷰는 축 정렬이 완벽할 수 없다. 살짝 어긋난 정도까지 ERR_VOLUME 으로
+    떨어뜨리면 정상 촬영도 전부 거절된다. 붙여 주되 사유를 남긴다.
+    """
+    bboxes = {
+        "front": (-5.0, 5.0, 0.0, 8.0),
+        "top": (5.6, 15.0, -4.0, 4.0),  # x 가 front 와 0.6mm 만 벌어짐
+        "left": (0.0, 8.0, -4.0, 4.0),
+        "right": (0.0, 8.0, -4.0, 4.0),
+        "back": (-5.0, 5.0, 0.0, 8.0),
+    }
+    relaxed: list[str] = []
+    x_rng, _y, _z = slab_aabb_intervals_mm(bboxes, relaxed_out=relaxed)
+    assert relaxed, "완화했으면 사유가 남아야 한다"
+    assert x_rng[0] < x_rng[1]
+
+
+def test_large_axis_mismatch_still_raises() -> None:
+    """완화는 손각대 오차용이지 '다른 물체를 찍은' 경우까지 덮으면 안 된다."""
+    bboxes = {
+        "front": (-5.0, 5.0, 0.0, 8.0),
+        "top": (100.0, 110.0, -4.0, 4.0),
+        "left": (0.0, 8.0, -4.0, 4.0),
+        "right": (0.0, 8.0, -4.0, 4.0),
+        "back": (-5.0, 5.0, 0.0, 8.0),
+    }
+    with pytest.raises(PipelineError) as ei:
+        slab_aabb_intervals_mm(bboxes)
+    assert ei.value.code == "ERR_VOLUME"

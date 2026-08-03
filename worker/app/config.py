@@ -24,13 +24,23 @@ class Settings(BaseSettings):
     debug_save_masks: bool = False
     worker_output_dir: str = "/output"
 
-    min_short_edge_px: int = Field(default=1600, validation_alias="ARCHIMEDES_MIN_SHORT_EDGE")
+    # 폰 사진은 늘 이보다 크다. 이 게이트의 목적은 썸네일·스크린샷 같은
+    # **분석 불가능한 저해상도**를 거르는 것이지 화질 심사가 아니다.
+    min_short_edge_px: int = Field(default=1000, validation_alias="ARCHIMEDES_MIN_SHORT_EDGE")
     # 라플라시안 분산(대략적 선명도). 높을수록 엄격. v0 스캐폴드는 로컬·데모에서 거절이 잦아 기본 완화.
     # 운영·파일럿 전 `ARCHIMEDES_BLUR_THRESHOLD`로 재튜닝(스펙 §8).
     blur_laplacian_threshold: float = Field(
         default=6.0, validation_alias="ARCHIMEDES_BLUR_THRESHOLD"
     )
-    scale_mismatch_ratio: float = Field(default=0.08, validation_alias="ARCHIMEDES_SCALE_MISMATCH")
+    # 뷰별 σ 는 **각 컷의 카드 크기로 따로 계산**되므로, 가까이 찍은 컷의 σ 가
+    # 큰 것은 오류가 아니라 정답이다. 거리 차이는 이미 보정된다.
+    # 따라서 이 게이트는 "촬영 거리를 맞춰라"가 아니라 **카드 오검출 탐지**용이다.
+    # (예: 카드가 아닌 사각형을 잡아 σ 가 2~3배 튀는 경우)
+    #
+    # ⚠️ 이전 기본값 0.08 은 σ 가 상수 0.1 로 고정돼 있던 시절의 값이라
+    # **한 번도 발동한 적이 없었다**. σ 를 고치자 그 게이트가 깨어나 손각대
+    # 5뷰 촬영을 전부 거절했다. 검증된 적 없는 임계값이었다.
+    scale_mismatch_ratio: float = Field(default=0.5, validation_alias="ARCHIMEDES_SCALE_MISMATCH")
     voxel_penalty_resolution_ratio: float = Field(
         default=0.12, validation_alias="ARCHIMEDES_VOXEL_PENALTY_RATIO"
     )

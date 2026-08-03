@@ -30,6 +30,13 @@ class ConfidenceState:
         score = max(0, score)
         if self.precision_boost and score < 2:
             score += 1
+        # 부피 모델이 상한 근사이거나 두께를 관측하지 못했으면 `precision_boost` 로도
+        # `high` 로 올리지 않는다. precision_boost 는 **카메라 포즈·스케일** 품질
+        # 신호일 뿐, 두께 미관측을 상쇄하지 못한다.
+        # (실제로 폰 사진 + 기울인 카드면 boost 가 켜져 tier=high 가 됐는데,
+        #  같은 결과의 부피 불확실성은 σ≈0.5 였다 — tier 와 범위가 서로 모순됐다)
+        if self.coarse_volume_model:
+            score = min(score, 1)
         return ["low", "medium", "high"][score]
 
     def pct(self) -> float:

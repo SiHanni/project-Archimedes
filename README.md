@@ -44,6 +44,16 @@ docker compose up --build
 
 업로드 후 **worker-consumer** 로그에서 job 처리 여부를 확인합니다.
 
+### DB 스키마가 뒤처졌을 때
+
+`infra/mysql/init/01-schema.sql` 은 **볼륨이 비어 있을 때만** 실행됩니다.
+예전에 만든 볼륨을 계속 쓰고 있다면 이후 스키마 변경이 반영되지 않으므로,
+멱등 마이그레이션을 한 번 적용해 주세요.
+
+```bash
+./scripts/db-migrate.sh
+```
+
 ### 다음날 / PC 재부팅 후 한 번에 기동 (도커 + Vercel용 터널)
 
 어제 `docker compose down` 했어도 **이 스크립트 한 번**이면 전체 스택을 백그라운드로 띄우고, API가 뜰 때까지 기다린 뒤 **cloudflared** 터널까지 켭니다. (출력되는 `VITE_API_BASE`를 Vercel에 넣고 재배포 — URL이 바뀌면 매번 갱신)

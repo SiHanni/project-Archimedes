@@ -60,7 +60,9 @@ def get_detector(settings: Settings) -> Detector:
     if b == "stub":
         return StubDetector()
     if b == "onnx":
-        return OnnxYoloDetector(model_dir=settings.onnx_model_dir)
+        return OnnxYoloDetector(
+            model_dir=settings.onnx_model_dir, filename=settings.detector_model_file
+        )
     raise _unknown("detector", b, ("stub", "onnx"))
 
 
@@ -71,7 +73,9 @@ def get_segmenter(settings: Settings) -> Segmenter:
     if b == "rembg":
         return RembgSegmenter()
     if b == "onnx":
-        return OnnxMattingSegmenter(model_dir=settings.onnx_model_dir)
+        return OnnxMattingSegmenter(
+            model_dir=settings.onnx_model_dir, filename=settings.segmenter_model_file
+        )
     raise _unknown("segmenter", b, ("heuristic", "rembg", "onnx"))
 
 
@@ -82,6 +86,8 @@ def get_depth_estimator(settings: Settings) -> DepthEstimator:
     if b == "onnx":
         return OnnxDepthEstimator(
             model_dir=settings.onnx_model_dir,
+            filename=settings.depth_model_file,
+            input_size=settings.depth_input_size,
             kind=DepthKind(settings.depth_output_kind),
             inverse=settings.depth_output_inverse,
             output_scale_to_mm=settings.depth_output_scale_to_mm,

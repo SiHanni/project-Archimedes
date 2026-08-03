@@ -20,11 +20,23 @@ class DepthKind(str, Enum):
 
     METRIC = "metric"
     AFFINE_INVARIANT = "affine_invariant"
+    INVERSE_AFFINE = "inverse_affine"
     RELATIVE = "relative"
 
     @property
     def needs_anchor(self) -> bool:
         return self is not DepthKind.METRIC
+
+    @property
+    def affine_in_inverse_depth(self) -> bool:
+        """
+        출력이 **시차(disparity)** 라서 아핀 관계가 역깊이 공간에서 성립하는가.
+
+        MiDaS·Depth Anything 계열은 `d ≈ α/Z + β` 를 낸다. 이걸 깊이 공간의
+        아핀 `Z ≈ s·d + t` 로 맞추면 β 때문에 체계적으로 틀어진다.
+        (β=0 일 때만 두 모델이 같아진다)
+        """
+        return self is DepthKind.INVERSE_AFFINE
 
 
 @dataclass

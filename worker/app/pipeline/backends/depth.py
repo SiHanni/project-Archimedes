@@ -67,8 +67,11 @@ class OnnxDepthEstimator:
     값의 의미는 모델에 따라 다르므로 `kind` 를 생성자에서 명시한다
     (metric 모델이면 `DepthKind.METRIC` 과 `output_scale_to_mm` 를 함께 준다).
 
-    ⚠️ 역깊이(inverse depth)를 내는 모델이면 `inverse=True` 로 지정해야 한다.
-    이 구분을 틀리면 부호가 뒤집혀 물체가 뒤집힌 채 복원된다.
+    ⚠️ 시차(disparity)를 내는 모델(MiDaS·Depth Anything 계열)은
+    `kind=DepthKind.INVERSE_AFFINE` 로 지정하고 `inverse=False` 로 둔다.
+    스케일 융합이 **역깊이 공간에서** 아핀을 맞춘다(§3).
+    `inverse=True` 는 여기서 1/x 를 취해 깊이로 바꾸는 옵션이며, 시차 모델에
+    이걸 쓰면 β 항 때문에 체계적으로 틀어진다.
     """
 
     name = "onnx"

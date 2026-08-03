@@ -13,3 +13,5 @@ venv/
 web/dist/
 api/dist/
 output_debug/
+# ONNX 가중치 — scripts/fetch-models.sh 로 받는다(레포에 커밋하지 않음)
+models/

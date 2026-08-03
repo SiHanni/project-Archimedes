@@ -231,16 +231,30 @@ def fuse_scale(
         fit = np.ones_like(idx, dtype=bool)
         hold = np.zeros_like(idx, dtype=bool)
 
-    s, t, ill = _fit_affine(d_hat[fit], d_true[fit])
-
-    depth_mm = (s * depth.depth.astype(np.float64) + t).astype(np.float32)
+    if depth.kind.affine_in_inverse_depth:
+        # 시차 모델: 1/Z ≈ a·d + b 로 맞춘 뒤 Z = 1/(a·d + b)
+        s, t, ill = _fit_affine(d_hat[fit], 1.0 / d_true[fit], scale_only_fallback=True)
+        raw = depth.depth.astype(np.float64)
+        denom = s * raw + t
+        # 0·음수 분모는 물리적으로 카메라 뒤 → 무효 처리
+        bad = denom <= 1e-9
+        depth_mm = np.where(bad, np.nan, 1.0 / np.where(bad, 1.0, denom)).astype(np.float32)
+    else:
+        s, t, ill = _fit_affine(d_hat[fit], d_true[fit])
+        depth_mm = (s * depth.depth.astype(np.float64) + t).astype(np.float32)
 
     rmse = mae = None
     if hold.any():
-        pred = s * d_hat[hold] + t
-        err = pred - d_true[hold]
-        rmse = float(np.sqrt(np.mean(err**2)))
-        mae = float(np.mean(np.abs(err)))
+        if depth.kind.affine_in_inverse_depth:
+            inv = s * d_hat[hold] + t
+            ok_h = inv > 1e-9
+            pred = np.where(ok_h, 1.0 / np.where(ok_h, inv, 1.0), np.nan)
+            err = pred[ok_h] - d_true[hold][ok_h]
+        else:
+            err = (s * d_hat[hold] + t) - d_true[hold]
+        if err.size:
+            rmse = float(np.sqrt(np.mean(err**2)))
+            mae = float(np.mean(np.abs(err)))
 
     return ScaleFusionResult(
         depth_mm=depth_mm,
@@ -259,13 +273,20 @@ def fuse_scale(
     )
 
 
-def _fit_affine(d_hat: np.ndarray, d_true: np.ndarray) -> tuple[float, float, bool]:
+def _fit_affine(
+    d_hat: np.ndarray, d_true: np.ndarray, *, scale_only_fallback: bool = False
+) -> tuple[float, float, bool]:
     """
     최소제곱 `d_true ≈ s·d_hat + t`.
 
     카드가 정면에 가까우면 참 깊이가 거의 상수라 s 가 **식별되지 않는다**
-    (상수 깊이 스텁도 마찬가지). 그때 억지로 회귀하면 s 가 폭주하므로,
-    s=1 로 고정하고 오프셋만 맞춘 뒤 `ill_conditioned` 로 알린다.
+    (상수 깊이 스텁도 마찬가지). 그때 억지로 회귀하면 s 가 폭주한다.
+
+    퇴화 시 폴백은 **단위계에 따라 다르다**.
+    - 깊이 공간(mm↔mm): `s=1` 로 두고 오프셋만 맞추면 된다.
+    - 역깊이 공간(1/mm ↔ disparity): 두 축의 단위가 아예 달라 `s=1` 이
+      무의미하다. `t=0` 으로 두고 **스케일만** 맞춰야 한다
+      (`scale_only_fallback=True`). 이걸 틀리면 깊이가 폭주한다.
     """
     mean_hat = float(d_hat.mean())
     spread_hat = float(d_hat.std())
@@ -282,6 +303,12 @@ def _fit_affine(d_hat: np.ndarray, d_true: np.ndarray) -> tuple[float, float, bo
         s = cov / var if var > 0 else 0.0
         if np.isfinite(s) and s > 0:
             return s, float(d_true.mean() - s * mean_hat), False
-        log.info("affine scale fit rejected (s=%s); falling back to offset-only", s)
+        log.info("affine scale fit rejected (s=%s); falling back", s)
 
+    if scale_only_fallback:
+        if abs(mean_hat) < 1e-12:
+            raise PipelineError(
+                "ERR_DEPTH_FAILED", "Depth model output is degenerate (mean ~ 0)"
+            )
+        return float(d_true.mean() / mean_hat), 0.0, True
     return 1.0, float(d_true.mean() - mean_hat), True

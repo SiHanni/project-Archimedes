@@ -71,6 +71,10 @@ services:
       <<: *app_db
       ALGORITHM_VERSION: archimedes-g1-v0.1.0-scaffold
       WORKER_OUTPUT_DIR: /output
+      ARCHIMEDES_DEPTH_BACKEND: ${ARCHIMEDES_DEPTH_BACKEND:-stub}
+      ARCHIMEDES_DEPTH_MODEL_FILE: ${ARCHIMEDES_DEPTH_MODEL_FILE:-depth.onnx}
+      ARCHIMEDES_DEPTH_OUTPUT_KIND: ${ARCHIMEDES_DEPTH_OUTPUT_KIND:-affine_invariant}
+      ARCHIMEDES_ONNX_MODEL_DIR: /models
     depends_on:
       mysql:
         condition: service_healthy
@@ -84,6 +88,8 @@ services:
       - "28000:8000"
     volumes:
       - worker_output:/output
+      # 가중치는 이미지에 굽지 않는다 — scripts/fetch-models.sh 로 받아 마운트
+      - ./models:/models:ro
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
   worker-consumer:
@@ -95,6 +101,10 @@ services:
       ALGORITHM_VERSION: archimedes-g1-v0.1.0-scaffold
       WORKER_OUTPUT_DIR: /output
       ARCHIMEDES_MODE: consumer
+      ARCHIMEDES_DEPTH_BACKEND: ${ARCHIMEDES_DEPTH_BACKEND:-stub}
+      ARCHIMEDES_DEPTH_MODEL_FILE: ${ARCHIMEDES_DEPTH_MODEL_FILE:-depth.onnx}
+      ARCHIMEDES_DEPTH_OUTPUT_KIND: ${ARCHIMEDES_DEPTH_OUTPUT_KIND:-affine_invariant}
+      ARCHIMEDES_ONNX_MODEL_DIR: /models
     depends_on:
       mysql:
         condition: service_healthy
@@ -106,6 +116,7 @@ services:
         condition: service_completed_successfully
     volumes:
       - worker_output:/output
+      - ./models:/models:ro
     command: ["python", "-m", "app.consumer"]
     restart: unless-stopped
 

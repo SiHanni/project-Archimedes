@@ -62,6 +62,18 @@ class Settings(BaseSettings):
     depth_backend: str = Field(default="stub", validation_alias="ARCHIMEDES_DEPTH_BACKEND")
     # 모델 가중치는 이미지에 굽지 않고 볼륨으로 주입한다
     onnx_model_dir: str = Field(default="/models", validation_alias="ARCHIMEDES_ONNX_MODEL_DIR")
+    # 파일명 — HuggingFace 배포본은 외부 가중치(.onnx_data)를 참조하므로
+    # **원본 파일명을 유지**해야 한다(이름을 바꾸면 데이터 파일을 못 찾는다).
+    detector_model_file: str = Field(
+        default="detector.onnx", validation_alias="ARCHIMEDES_DETECTOR_MODEL_FILE"
+    )
+    segmenter_model_file: str = Field(
+        default="segmenter.onnx", validation_alias="ARCHIMEDES_SEGMENTER_MODEL_FILE"
+    )
+    depth_model_file: str = Field(
+        default="depth.onnx", validation_alias="ARCHIMEDES_DEPTH_MODEL_FILE"
+    )
+    depth_input_size: int = Field(default=518, validation_alias="ARCHIMEDES_DEPTH_INPUT_SIZE")
     # 깊이 모델 출력 성격 — 틀리면 스케일 복원이 통째로 어긋난다
     depth_output_kind: str = Field(
         default="affine_invariant", validation_alias="ARCHIMEDES_DEPTH_OUTPUT_KIND"

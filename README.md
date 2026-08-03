@@ -150,6 +150,32 @@ PRICE_BUY_RATE=0.95              # 소매 시세 대비 매입률(선택)
 
 **평가 지표 (계획서 평가표 3·4)**: `python worker/scripts/evaluate_rmse.py` — 제품 형태별 중량 RMSE·MAPE·bias 와 앵커 홀드아웃 거리 RMSE.
 
+## 깊이 모델 붙이기 (1장 모드 정확도의 핵심)
+
+깊이 모델이 없으면 **두께를 관측하지 못해** 제품 기준값으로 가정한다(결과에 명시됨).
+붙이면 바닥면 위 높이를 픽셀마다 재서 부피를 직접 적분한다.
+
+```bash
+./scripts/fetch-models.sh        # Depth Anything V2 small (Apache-2.0) → ./models
+```
+
+`.env` 에 추가:
+
+```bash
+ARCHIMEDES_DEPTH_BACKEND=onnx
+ARCHIMEDES_DEPTH_MODEL_FILE=model_quantized.onnx
+ARCHIMEDES_DEPTH_OUTPUT_KIND=inverse_affine   # 시차(disparity) 모델
+```
+
+```bash
+docker compose up -d --build worker worker-consumer
+docker compose exec worker python scripts/check_models.py
+```
+
+⚠️ **`inverse_affine` 을 반드시 지정할 것.** MiDaS·Depth Anything 계열은
+깊이가 아니라 **시차**(`d ≈ α/Z + β`)를 낸다. 깊이 공간에서 아핀을 맞추면
+β 때문에 체계적으로 틀어진다(실측: 홀드아웃 RMSE 20,732mm → 2.81mm).
+
 ## 백엔드 교체 (ONNX)
 
 검출·분할·깊이는 `ARCHIMEDES_*_BACKEND` 로 갈아끼운다. 기본은 모델 없이 도는 `stub`/`heuristic`.

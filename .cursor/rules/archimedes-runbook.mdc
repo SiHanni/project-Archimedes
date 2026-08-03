@@ -61,7 +61,20 @@ cp .env.example .env   # 선택
 3. 터미널: `curl -s http://localhost:23000/v1/legal/terms` → JSON 약관 초안.
 4. 웹에서 **각도별 서로 다른 사진** 5장 업로드 후 분석 요청 → `worker-consumer` 로그에 job 완료/실패.
 
-### 2.4 중지·정리
+### 2.4 로컬 개발 — 서버 수정 시 자동 재시작 (이미지 재빌드 최소)
+
+- **`./scripts/start-dev-day.sh`** (권장): 전날 `docker compose down` 후 **다음날 한 번에** — `up -d --build` + API 헬스 대기 + **`cloudflared`** 터널(Vercel용). 옵션: `--no-dev`, `--no-tunnel`, `--watch`.
+- `./scripts/dev-up.sh`  
+  - `docker-compose.dev.yml` 오버레이: `api` 는 `Dockerfile.dev` + `src` 마운트 + `nest start --watch`, `worker` 는 `uvicorn --reload`, `worker-consumer` 는 `watchfiles`.  
+- `./scripts/dev-up.sh --watch` (Compose **2.23+**): 위에 더해 `web` 소스 변경 시 **web 이미지 재빌드**(`develop.watch`).  
+- `./scripts/dev-up.sh --tunnel` → 내부적으로 `start-dev-day.sh --dev` 와 동일(도커 백그라운드 + API 대기 + 터널).
+- **Vercel + 로컬 API**: `start-dev-day.sh` 또는 `tunnel-api.sh` 단독 — `cloudflared` 출력 URL을 `VITE_API_BASE` 로 Vercel에 넣고 재배포. Quick Tunnel 은 재시작 시 URL이 바뀜 → env 갱신 필요. **고정 URL**은 Cloudflare Zero Trust 이름 있는 터널(`.env`에 `CLOUDFLARE_TUNNEL_TOKEN` + `ARCHIMEDES_PUBLIC_API_BASE`) — `docs/cloudflare-stable-tunnel.md`. 종료: `./scripts/tunnel-api-stop.sh`
+
+- `package.json` / `pyproject.toml` 등 의존성 변경 후:  
+  `docker compose -f docker-compose.yml -f docker-compose.dev.yml build <서비스>`  
+- CI는 기존처럼 `docker compose build` 만 사용하므로 **dev 파일은 자동으로 합쳐지지 않음**.
+
+### 2.5 중지·정리
 
 ```bash
 docker compose down
@@ -159,6 +172,7 @@ pytest -m slow            # OpenCV 합성 1뷰 체인
 | 증상 | 원인·조치 |
 |------|-----------|
 | 웹은 뜨는데 결과가 영원히 pending | `worker-consumer` 가 안 떠 있거나 크래시. `docker compose ps` / `logs worker-consumer`. |
+| `ERR_JEWEL_ON_CARD` (옆에 뒀는데도) | 휴리스틱이 카드 **면 위** 그림자·반사·원근 겹침을 귀금속으로 잡으면 `on_card_inner` 로 분류될 수 있음. 카드와 **이미지에서 겹치지 않게** 더 띄우기, 그림자 줄이는 조명, 약간 위에서 찍기. 여전히 실험만 필요하면 `ARCHIMEDES_REJECT_ON_CARD_INNER=0`(비권장·과대 부피 위험). |
 | `ERR_VOLUME` | **동일 파일을 5슬롯에 넣은 경우** 등, 뷰별 기하가 맞지 않을 때 v0 슬랩 AABB가 교차 실패. 각도별 **서로 다른** 촬영본 업로드. |
 | `ERR_CARD_NOT_FOUND` / `ERR_BLUR` | 카드 미포함·해상도·초점. 스펙 §4·§8에 맞게 재촬영. |
 | `ParseUUIDPipe` 400 | `GET /v1/jobs/:id` 의 id는 **UUID v4** 형식이어야 함. |
@@ -182,3 +196,40 @@ pytest -m slow            # OpenCV 합성 1뷰 체인
 - Compose 기본 비밀번호·MinIO 키는 **개발 전용**. 배포 시 전부 교체.
 - API에 **Rate limit**, 업로드 **바이러스 스캔**, S3 **수명 주기 정책**은 운영 설계에 추가.
 - TLS 종단(리버스 프록시)과 **CORS 허용 도메인**을 고정.
+
+---
+
+## 8. Vercel + 휴대폰 테스트
+
+프론트(`web/`)는 Vercel에 바로 배포 가능하다.
+
+### 8.1 코드 준비
+
+- `web/src/api.ts` 는 `VITE_API_BASE` 를 우선 사용한다.
+  - 미설정 시 로컬 기본값 `/api`(Vite proxy)
+- `web/.env.example` 참고: `VITE_API_BASE=https://YOUR_API_DOMAIN/v1`
+
+### 8.2 Vercel 설정
+
+1. Vercel에서 프로젝트 Import (GitHub).
+2. **Root Directory**: `web`
+3. Environment Variables:
+   - `VITE_API_BASE = https://<공개 API 도메인>/v1`
+4. Deploy.
+
+### 8.3 폰에서 촬영 테스트
+
+- 배포 URL을 모바일 브라우저(Safari/Chrome)로 접속.
+- Step 2에서 **카메라로 촬영** 모드를 선택하면 `capture=environment` 로 후면 카메라 촬영 흐름이 열린다.
+- iOS/Safari는 HTTPS에서 카메라 권한 허용 필요.
+
+### 8.4 주의
+
+- 프론트만 Vercel에 올리면 API/Worker는 별도 퍼블릭 환경이 필요하다.
+- API CORS는 현재 허용형이지만, 운영에서는 Vercel 도메인으로 제한 권장.
+
+### 8.5 로컬 API를 잠깐 공개할 때 (터널)
+
+- **localtunnel (`loca.lt`)** 는 브라우저에 **「Tunnel website ahead」** 같은 안내 페이지를 띄우는 경우가 많다. 이 HTML이 그대로 `fetch` 응답으로 오면 **JSON이 아니라서** Vercel 앱의 API 호출이 깨진다. (브라우저에서 한 번 클릭 통과해도, 다른 기기·시크릿 창·재시작 후 서브도메인 변경 시 다시 막힐 수 있음.)
+- **대안**: **Cloudflare Quick Tunnel** (`cloudflared tunnel --url http://127.0.0.1:23000`) — `*.trycloudflare.com` URL이 나오면, 그 베이스에 `/v1` 을 붙여 `VITE_API_BASE` 로 Vercel Production에 넣고 **재배포**한다. 터널 프로세스는 PC에서 계속 떠 있어야 하며, 재실행 시 URL이 바뀌면 env를 다시 맞춘 뒤 재배포해야 한다.
+- **장기**: API·Worker를 고정 도메인으로 배포한 뒤 `VITE_API_BASE` 를 그 주소로 둔다.

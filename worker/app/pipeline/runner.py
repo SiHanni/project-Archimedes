@@ -54,6 +54,8 @@ def _check_sigma_consistency(sigmas: dict[str, float], ratio: float, settings: S
                 "ERR_SCALE_MISMATCH",
                 f"sigma view {v}={s:.5f} vs median {med:.5f}",
                 retry_step=v,
+                error_severity="soft",
+                suggested_action="retry_one_view",
             )
 
 
@@ -236,6 +238,24 @@ def _run_single(
     if implausible_mass:
         sanity_meta["raw_mass_est_g"] = round(mass, 4)
 
+    # 저하 사유를 기계가 읽을 수 있게 남긴다(프런트 재촬영 유도용).
+    # 단일사진은 뷰가 하나뿐이라 재시도 액션이 "retake_photo" 다.
+    degraded_reasons: list[str] = []
+    if not fusion.anchor_used:
+        degraded_reasons.append("no_anchor")
+    if fusion.ill_conditioned:
+        degraded_reasons.append("anchor_ill_conditioned")
+    if thickness_assumed:
+        degraded_reasons.append(f"thickness_clamped:{rec.thickness_clamp}")
+    if weak_model:
+        degraded_reasons.append(f"weak_volume_model:{rec.method}")
+    if not K.is_reliable:
+        degraded_reasons.append("intrinsics_fallback")
+    if depth_penalty:
+        degraded_reasons.append("depth_rmse_high")
+    if implausible_mass:
+        degraded_reasons.append("implausible_mass")
+
     result = JobResult(
         algorithm_version=settings.algorithm_version,
         V_hull_mm3=round(rec.volume_mm3, 4),
@@ -250,6 +270,14 @@ def _run_single(
         ),
         meta={
             "capture_mode": "single",
+            "workflow": {
+                "error_severity": "soft" if tier == "low" else "none",
+                "suggested_action": (
+                    "retake_photo" if degraded_reasons else "continue_low_confidence"
+                ),
+                "retry_views": [SINGLE_VIEW_KEY] if degraded_reasons else [],
+                "degraded_reasons": degraded_reasons,
+            },
             "volume_model": rec.method,
             "camera": K.as_meta(),
             "detection": det_meta,
@@ -392,6 +420,16 @@ def _run_multiview(
             "형태(귀걸이/반지 등)와 촬영에 맞게 `constants.py` Hollow·layout 계수를 실측으로 조정하세요."
         )
 
+    degraded_reasons: list[str] = []
+    if fallback_views:
+        degraded_reasons.extend([f"card_fallback:{v}" for v in fallback_views])
+    if implausible_mass:
+        degraded_reasons.append("implausible_mass")
+    if vol_est.multires_penalty:
+        degraded_reasons.append("multires_penalty")
+
+    retry_views = sorted(set(fallback_views))[:2]
+
     result = JobResult(
         algorithm_version=settings.algorithm_version,
         V_hull_mm3=round(vol_est.V_hull_mm3, 4),
@@ -402,6 +440,12 @@ def _run_multiview(
         mass_range=mass_range_out,
         meta={
             "capture_mode": "multiview",
+            "workflow": {
+                "error_severity": "soft" if tier == "low" else "none",
+                "suggested_action": "retry_one_view" if retry_views else "continue_low_confidence",
+                "retry_views": retry_views,
+                "degraded_reasons": degraded_reasons,
+            },
             "segmentation": {"per_view_placement": placement_by_view},
             "hollow": {
                 "alpha_k": alpha_k,

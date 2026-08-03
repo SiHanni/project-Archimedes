@@ -10,13 +10,18 @@ const VIEW_LABEL: Record<(typeof VIEWS)[number], string> = {
   back: '후면',
 };
 
-/** worker `constants.MATERIALS` 와 동일해야 함 (금속별로 함량 표기가 다름) */
+type CaptureMode = 'camera' | 'upload';
+/** 사진 장수 — v2 는 1장이 기본, 5방향은 고신뢰 옵션 */
+type ShotMode = 'single' | 'multiview';
+
+/** worker `constants.MATERIALS` 와 동일해야 함 */
 const METALS = [
   { value: 'gold', label: '금' },
   { value: 'silver', label: '은' },
   { value: 'platinum', label: '백금' },
 ] as const;
 
+/** 함량 표기는 금속마다 의미가 달라(예: 999 = 금 24K vs 은 순은) 금속별로 나눈다 */
 const PURITY_BY_METAL: Record<string, { value: string; label: string }[]> = {
   gold: [
     { value: '24k', label: '24K (순금)' },
@@ -36,13 +41,81 @@ const PURITY_BY_METAL: Record<string, { value: string; label: string }[]> = {
   ],
 };
 
+/** 형태별 촬영 주의 — API `product_k` 와 동일 키 (`worker` constants·스펙 §4·§7 정합) */
+const PRODUCT_SHOOTING_TIPS: Record<string, { title: string; items: string[] }> = {
+  ring: {
+    title: '반지',
+    items: [
+      '반지와 카드를 **같은 바닥 면**에 두고, 링이 세워지지 않게 **눕힌 상태**로 촬영하면 스케일이 안정적입니다.',
+      '속이 비어 있는 링·텅 빈 디자인은 실제 금속 질량과 추정치 차이가 클 수 있습니다.',
+    ],
+  },
+  necklace: {
+    title: '목걸이',
+    items: [
+      '체인을 **최대한 한 줄로 펼쳐**, 고리가 **겹치지 않게** 바닥에 놓고 촬영해 주세요. 뭉치면 실루엣이 한 덩어리로 잡혀 부피·질량 오차가 커질 수 있습니다.',
+      '상단 뷰에서 **카드와 목걸이가 함께** 프레임에 들어오도록 해 주세요.',
+    ],
+  },
+  chain: {
+    title: '체인',
+    items: [
+      '체인을 **펼쳐** 한 줄로, **겹침을 최소화**해 바닥에 놓고 촬영해 주세요.',
+      '일부만 뭉쳐 두면 안 됩니다. 가능한 범위에서 펼쳐 주세요.',
+    ],
+  },
+  bracelet: {
+    title: '팔찌',
+    items: [
+      '얇은 체인형 팔찌는 목걸이와 같이 **펼쳐** 겹침을 줄여 주세요.',
+      '굵은 뱅글형도 카드와 **같은 바닥 면**에 두고, 찌그러지지 않게 촬영해 주세요.',
+    ],
+  },
+  pendant: {
+    title: '펜던트',
+    items: [
+      '펜던트 **본체**와 카드가 **같은 평면(바닥)** 에 놓이게 해 주세요.',
+      '끈·체인은 가능하면 **펼쳐** 겹침을 줄여 주세요.',
+    ],
+  },
+  earring: {
+    title: '귀걸이',
+    items: [
+      '두 짝을 **포개지 않게** 옆으로 나란히 두고 촬영해 주세요. 겹치면 실루엣이 합쳐져 부피가 과대 추정될 수 있습니다.',
+      '카드 **위에 올리지 말고** 카드 옆 바닥에 놓아 주세요.',
+    ],
+  },
+  other: {
+    title: '기타',
+    items: [
+      '귀금속과 신용카드를 **같은 바닥 면**에 두고, 카드 위에 올리지 마세요.',
+      '형태가 복잡하면 가능한 한 **겹침·가림**을 줄여 주세요.',
+    ],
+  },
+};
+
+function ShootingTipLine({ text }: { text: string }) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return (
+    <span>
+      {parts.map((part, i) => {
+        if (part.startsWith('**') && part.endsWith('**')) {
+          return <strong key={i}>{part.slice(2, -2)}</strong>;
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </span>
+  );
+}
+
 export function HomePage() {
   const [step, setStep] = useState<0 | 1 | 2>(0);
   const [knows, setKnows] = useState<'yes' | 'no' | null>(null);
   const [refWeight, setRefWeight] = useState('');
-  const [captureMode, setCaptureMode] = useState<'single' | 'multiview'>('single');
-  const [singleFile, setSingleFile] = useState<File | undefined>();
   const [files, setFiles] = useState<Partial<Record<(typeof VIEWS)[number], File>>>({});
+  const [captureMode, setCaptureMode] = useState<CaptureMode>('camera');
+  const [shotMode, setShotMode] = useState<ShotMode>('single');
+  const [singleFile, setSingleFile] = useState<File | undefined>();
   const [metal, setMetal] = useState('gold');
   const [purity, setPurity] = useState('18k');
   const [product, setProduct] = useState('ring');
@@ -54,7 +127,7 @@ export function HomePage() {
     setFiles((prev) => ({ ...prev, [v]: f }));
   };
 
-  /** 금속을 바꾸면 함량 표기 체계가 달라지므로 첫 항목으로 재설정한다 (예: 금 18k → 백금 pt950) */
+  /** 금속을 바꾸면 함량 표기 체계가 달라지므로 첫 항목으로 재설정한다 (금 18k → 백금 pt950) */
   const onMetalChange = (next: string) => {
     setMetal(next);
     const first = PURITY_BY_METAL[next]?.[0]?.value;
@@ -65,7 +138,8 @@ export function HomePage() {
     for (let i = 0; i < 120; i++) {
       const j = await getJob(id);
       setJob(j);
-      if (j.status === 'completed' || j.status === 'failed') return;
+      if (j.status === 'completed' || j.status === 'completed_low_confidence' || j.status === 'failed')
+        return;
       await new Promise((r) => setTimeout(r, 1500));
     }
     setErr('시간 초과 — 나중에 job id로 다시 조회해 보세요.');
@@ -77,24 +151,20 @@ export function HomePage() {
     setJob(null);
     try {
       const fd = new FormData();
-      if (captureMode === 'single') {
-        if (!singleFile) throw new Error('사진을 선택하세요.');
+      if (shotMode === 'single') {
+        if (!singleFile) throw new Error('사진을 준비해 주세요.');
         fd.append('image', singleFile);
       } else {
         for (const v of VIEWS) {
-          if (!files[v]) throw new Error(`${VIEW_LABEL[v]} 이미지를 선택하세요.`);
+          if (!files[v]) throw new Error(`${VIEW_LABEL[v]} 이미지를 준비해 주세요.`);
         }
-        for (const v of VIEWS) {
-          fd.append(v, files[v]!);
-        }
+        for (const v of VIEWS) fd.append(v, files[v]!);
       }
-      fd.append('capture_mode', captureMode);
+      fd.append('capture_mode', shotMode);
       fd.append('metal', metal);
       fd.append('purity', purity);
       fd.append('product_k', product);
-      if (knows === 'yes' && refWeight.trim()) {
-        fd.append('reference_weight_g', refWeight.trim());
-      }
+      if (knows === 'yes' && refWeight.trim()) fd.append('reference_weight_g', refWeight.trim());
       if (knows) fd.append('knows_weight', knows);
       const { id } = await postJob(fd);
       await poll(id);
@@ -105,9 +175,7 @@ export function HomePage() {
     }
   };
 
-  /** 서버 meta 없이 올라온 구버전/비정상 JSON 대비 — 일반 귀금속에서 거의 안 나오는 무게는 숫자 숨김 */
   const CLIENT_ABSURD_MASS_G = 350;
-
   const tier = job?.result?.confidence_tier;
   const hideQuote = tier === 'low';
   const sanity = job?.result?.meta?.sanity;
@@ -117,20 +185,25 @@ export function HomePage() {
   const hideMass =
     Boolean(sanity?.suppress_mass_display) ||
     (typeof massG === 'number' && massG > CLIENT_ABSURD_MASS_G);
+  const retryViews =
+    (job?.error?.retryViews && job.error.retryViews.length > 0
+      ? job.error.retryViews
+      : job?.result?.meta?.workflow?.retry_views) ?? [];
+  const retrySet = new Set(retryViews);
 
   return (
     <div>
       {step === 0 && (
-        <section>
-          <h2>귀금속의 무게를 알고 계신가요?</h2>
-          <p style={{ color: '#64748b', fontSize: '0.92rem' }}>
-            저울 위에 올려 찍은 사진은 분석에 맞지 않을 수 있어요. 평평한 곳에 내려놓고 촬영·업로드해 주세요. (§9.1)
+        <section className="card card--hero">
+          <h2 className="section-title">귀금속 무게, 알고 계신가요?</h2>
+          <p className="text-muted">
+            저울 위에 올려 찍은 사진은 분석에 맞지 않을 수 있어요. 평평한 곳에 내려놓고 촬영해 주세요.
           </p>
-          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '1rem' }}>
-            <button type="button" onClick={() => { setKnows('no'); setStep(1); }}>
+          <div className="btn-row">
+            <button type="button" className="btn btn--primary" onClick={() => { setKnows('no'); setStep(1); }}>
               아니요 / 잘 모르겠어요
             </button>
-            <button type="button" onClick={() => { setKnows('yes'); setStep(1); }}>
+            <button type="button" className="btn btn--secondary" onClick={() => { setKnows('yes'); setStep(1); }}>
               네, 알고 있어요
             </button>
           </div>
@@ -138,101 +211,69 @@ export function HomePage() {
       )}
 
       {step === 1 && (
-        <section>
-          <h2>촬영·업로드 전 체크</h2>
-          <ul style={{ color: '#334155' }}>
+        <section className="card">
+          <h2 className="section-title">촬영 전 체크</h2>
+          <ul className="check-list">
             <li>
-              <strong>신용카드를 함께 찍어 주세요.</strong> 카드는 크기가 규격(85.6×54mm)으로 정해져 있어
-              사진 속 실제 크기를 재는 <strong>기준자</strong>가 됩니다. 없으면 정확도가 크게 떨어집니다.
+              <strong>신용카드를 함께 찍어 주세요.</strong> 카드는 크기가 규격(85.6×54mm)으로
+              고정돼 있어 사진 속 실제 크기를 재는 <strong>기준자</strong>가 됩니다.
+              없으면 정확도가 크게 떨어집니다.
             </li>
-            <li>카드와 귀금속을 <strong>같은 바닥 면</strong>에 나란히 둡니다.</li>
+            <li>신용카드와 귀금속을 <strong>같은 바닥 면</strong>에 둡니다.</li>
             <li>카드가 살짝 <strong>비스듬히</strong> 보이게 찍으면 거리 추정이 더 정확해집니다.</li>
+            <li><strong>카드 위에 올리지 마세요.</strong> 카드 옆에 나란히 둡니다.</li>
             <li>저울 위에 올린 상태로 찍지 않습니다.</li>
+            <li>정면·상단·좌·우·후면 순서로 촬영합니다.</li>
           </ul>
+          <div className="notice notice--slate">
+            <strong>텅 빈·속 빈 귀금속</strong>처럼 사진만으로 내부 구조를 알 수 없는 경우, 실제 금속 질량과 추정치 차이가 클 수 있습니다.{' '}
+            Archimedes는 이 경우 <strong>정확한 질량을 제공하기 어렵습니다</strong>. 참고용 추정이며, 금은방 등에서 저울로 확정하시기 바랍니다.
+          </div>
           {knows === 'yes' && (
-            <label style={{ display: 'block', marginTop: '1rem' }}>
-              참고 무게 (g, 선택)
+            <div className="field" style={{ marginTop: '1rem' }}>
+              <label htmlFor="refWeight">참고 무게 (g, 선택)</label>
               <input
+                id="refWeight"
                 type="number"
                 step="0.01"
                 value={refWeight}
                 onChange={(e) => setRefWeight(e.target.value)}
-                style={{ display: 'block', marginTop: '0.35rem', width: '100%', maxWidth: 280 }}
               />
-            </label>
+            </div>
           )}
-          <button type="button" style={{ marginTop: '1rem' }} onClick={() => setStep(2)}>
-            다음
-          </button>
+          <div className="btn-row">
+            <button type="button" className="btn btn--primary" onClick={() => setStep(2)}>다음</button>
+          </div>
         </section>
       )}
 
       {step === 2 && (
-        <section>
-          <h2>이미지 업로드</h2>
-          <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', fontSize: '0.92rem' }}>
-            <label>
-              <input
-                type="radio"
-                checked={captureMode === 'single'}
-                onChange={() => setCaptureMode('single')}
-              />{' '}
-              사진 1장 <span style={{ color: '#64748b' }}>(기본)</span>
-            </label>
-            <label>
-              <input
-                type="radio"
-                checked={captureMode === 'multiview'}
-                onChange={() => setCaptureMode('multiview')}
-              />{' '}
-              5방향 <span style={{ color: '#64748b' }}>(고신뢰)</span>
-            </label>
-          </div>
-          <div style={{ display: 'grid', gap: '0.75rem', marginBottom: '1rem' }}>
-            {captureMode === 'single' ? (
-              <label style={{ display: 'block' }}>
-                귀금속 + 신용카드가 함께 나온 사진
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => setSingleFile(e.target.files?.[0])}
-                  style={{ display: 'block', marginTop: '0.25rem' }}
-                />
-              </label>
-            ) : (
-              VIEWS.map((v) => (
-                <label key={v} style={{ display: 'block' }}>
-                  {VIEW_LABEL[v]}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => onFile(v, e.target.files?.[0])}
-                    style={{ display: 'block', marginTop: '0.25rem' }}
-                  />
-                </label>
-              ))
-            )}
-          </div>
-          <div style={{ display: 'grid', gap: '0.5rem', maxWidth: 320, marginBottom: '1rem' }}>
-            <label>
-              금속
-              <select value={metal} onChange={(e) => onMetalChange(e.target.value)} style={{ display: 'block', width: '100%' }}>
+        <section className="card">
+          <h2 className="section-title">각도별 촬영</h2>
+          <p className="text-muted" style={{ marginTop: 0 }}>
+            먼저 형태를 고른 뒤, 아래 <strong>형태별 촬영 주의</strong>를 확인하고 각도별 사진을 준비해 주세요.
+          </p>
+
+          <div className="form-grid" style={{ marginBottom: '1rem' }}>
+            <div className="field">
+              <label htmlFor="metal">금속</label>
+              <select id="metal" value={metal} onChange={(e) => onMetalChange(e.target.value)}>
                 {METALS.map((m) => (
                   <option key={m.value} value={m.value}>{m.label}</option>
                 ))}
               </select>
-            </label>
-            <label>
-              함량
-              <select value={purity} onChange={(e) => setPurity(e.target.value)} style={{ display: 'block', width: '100%' }}>
-                {(PURITY_BY_METAL[metal] ?? []).map((p) => (
-                  <option key={p.value} value={p.value}>{p.label}</option>
+            </div>
+            <div className="field">
+              <label htmlFor="purity">함량</label>
+              <select id="purity" value={purity} onChange={(e) => setPurity(e.target.value)}>
+                {(PURITY_BY_METAL[metal] ?? []).map((pp) => (
+                  <option key={pp.value} value={pp.value}>{pp.label}</option>
                 ))}
               </select>
-            </label>
-            <label>
-              형태
-              <select value={product} onChange={(e) => setProduct(e.target.value)} style={{ display: 'block', width: '100%' }}>
+            </div>
+            <div className="field">
+              <label htmlFor="product">형태</label>
+              <select id="product" value={product} onChange={(e) => setProduct(e.target.value)}>
                 <option value="ring">반지</option>
                 <option value="necklace">목걸이</option>
                 <option value="chain">체인</option>
@@ -241,128 +282,191 @@ export function HomePage() {
                 <option value="earring">귀걸이</option>
                 <option value="other">기타</option>
               </select>
-            </label>
-            <p style={{ fontSize: '0.82rem', color: '#64748b', margin: 0 }}>
-              귀걸이는 반드시 <strong>귀걸이</strong>로 선택하세요. (일반 금 귀걸이는 흔히 <strong>약 3–5g</strong> 전후입니다.) 다른 형태로 고르면
-              보정이 맞지 않아 수치가 크게 어긋날 수 있어요.
-            </p>
+            </div>
           </div>
-          <button type="button" disabled={busy} onClick={() => void submit()}>
+
+          {(() => {
+            const tip = PRODUCT_SHOOTING_TIPS[product] ?? PRODUCT_SHOOTING_TIPS.other;
+            return (
+              <div className="notice notice--tips" style={{ marginBottom: '1rem' }}>
+                <p className="notice__title">형태별 촬영 주의 — {tip.title}</p>
+                <ul style={{ margin: 0, paddingLeft: '1.15rem' }}>
+                  {tip.items.map((line, idx) => (
+                    <li key={idx} style={{ marginBottom: '0.35rem' }}>
+                      <ShootingTipLine text={line} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })()}
+
+          <div className="btn-row" style={{ marginBottom: '0.5rem' }}>
+            <button
+              type="button"
+              className={`btn btn--toggle ${shotMode === 'single' ? 'is-on' : ''}`}
+              onClick={() => setShotMode('single')}
+            >
+              사진 1장
+            </button>
+            <button
+              type="button"
+              className={`btn btn--toggle ${shotMode === 'multiview' ? 'is-on' : ''}`}
+              onClick={() => setShotMode('multiview')}
+            >
+              5방향 (고신뢰)
+            </button>
+          </div>
+
+          <div className="btn-row" style={{ marginBottom: '0.5rem' }}>
+            <button
+              type="button"
+              className={`btn btn--toggle ${captureMode === 'camera' ? 'is-on' : ''}`}
+              onClick={() => setCaptureMode('camera')}
+            >
+              카메라로 촬영
+            </button>
+            <button
+              type="button"
+              className={`btn btn--toggle ${captureMode === 'upload' ? 'is-on' : ''}`}
+              onClick={() => setCaptureMode('upload')}
+            >
+              파일에서 선택
+            </button>
+          </div>
+          <p className="text-small" style={{ marginTop: 0 }}>
+            {captureMode === 'camera'
+              ? '휴대폰에서는 버튼을 누르면 카메라가 열립니다. 각 각도마다 1장씩 촬영하세요.'
+              : '이미 찍어둔 사진이 있으면 각도별로 선택하세요.'}
+          </p>
+
+          <div style={{ display: 'grid', gap: '0.75rem', marginBottom: '1rem', marginTop: '0.75rem' }}>
+            {shotMode === 'single' ? (
+              <label className={`file-slot ${retrySet.size > 0 ? 'file-slot--retry' : ''}`}>
+                귀금속 + 신용카드가 함께 나온 사진 {singleFile ? `— ${singleFile.name}` : ''}
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture={captureMode === 'camera' ? 'environment' : undefined}
+                  onChange={(e) => setSingleFile(e.target.files?.[0])}
+                  style={{ display: 'block', marginTop: '0.35rem' }}
+                />
+              </label>
+            ) : (
+              VIEWS.map((v) => (
+                <label
+                  key={v}
+                  className={`file-slot ${retrySet.has(v) ? 'file-slot--retry' : ''}`}
+                >
+                  {VIEW_LABEL[v]} {files[v] ? `— ${files[v]!.name}` : ''}
+                  {retrySet.has(v) ? ' (재촬영 권장)' : ''}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture={captureMode === 'camera' ? 'environment' : undefined}
+                    onChange={(e) => onFile(v, e.target.files?.[0])}
+                    style={{ display: 'block', marginTop: '0.35rem' }}
+                  />
+                </label>
+              ))
+            )}
+          </div>
+
+          <button type="button" className="btn btn--primary" style={{ width: '100%' }} disabled={busy} onClick={() => void submit()}>
             {busy ? '처리 중…' : '분석 요청'}
           </button>
         </section>
       )}
 
-      {err && (
-        <p style={{ color: '#b91c1c', marginTop: '1rem', whiteSpace: 'pre-wrap' }}>{err}</p>
-      )}
+      {err ? <p className="msg-error">{err}</p> : null}
 
-      {job && (
-        <section style={{ marginTop: '1.5rem', padding: '1rem', background: '#fff', borderRadius: 8 }}>
-          <h3>결과</h3>
+      {job ? (
+        <section className="card card--result" style={{ marginTop: '1rem' }}>
+          <h3 className="section-title">결과</h3>
           <p>상태: <strong>{job.status}</strong></p>
-          {job.error && (
-            <p style={{ color: '#b91c1c' }}>
+          {job.error ? (
+            <p className="msg-error" style={{ marginTop: '0.5rem' }}>
               {job.error.code}: {job.error.message}
+              {job.error.errorSeverity === 'soft' ? ' (저신뢰 재시도 권장)' : ''}
             </p>
-          )}
-          {job.result && (
+          ) : null}
+          {retryViews.length > 0 ? (
+            job?.result?.meta?.capture_mode === 'single' ? (
+              <p className="msg-warn--soft">아래 안내를 반영해 사진을 다시 찍어 재요청해 주세요.</p>
+            ) : (
+              <p className="msg-warn--soft">
+                다시 촬영은 전체가 아니라 <strong>{retryViews.map((v) => VIEW_LABEL[v as keyof typeof VIEW_LABEL] ?? v).join(', ')}</strong> 만 교체해서 재요청하세요.
+              </p>
+            )
+          ) : null}
+          {job.result ? (
             <>
               {hideMass ? (
-                <p style={{ color: '#b45309' }}>
-                  추정 무게가 <strong>비현실적으로 크게</strong> 나와 숫자는 표시하지 않습니다.
-                  카드 옆 바닥에 나란히 두고(카드 위 X), 귀금속이 선명히 보이게 다시 촬영해 주세요.
-                  {sanity?.sanity_mass_cap_g != null && (
-                    <span> (서버 참고 상한 약 {sanity.sanity_mass_cap_g} g)</span>
-                  )}
-                  {!sanity?.suppress_mass_display && typeof massG === 'number' && (
-                    <span style={{ display: 'block', marginTop: '0.35rem', fontSize: '0.85rem' }}>
-                      (내부 추정값이 비정상적으로 큽니다. 앱·워커를 최신으로 올렸는지도 확인해 주세요.)
-                    </span>
-                  )}
+                <p className="msg-warn">
+                  추정 무게가 비현실적으로 커 보여 숫자를 숨깁니다. 카드 옆 바닥에 놓고 다시 촬영해 주세요.
                 </p>
               ) : (
                 <p>
-                  추정 무게: <strong>{job.result.mass_est_g.toFixed(3)} g</strong>
+                  추정 무게:{' '}
+                  <strong style={{ fontSize: '1.15rem', color: 'var(--gold-deep)' }}>{job.result.mass_est_g.toFixed(3)} g</strong>
                 </p>
               )}
               <p>신뢰도 등급: {job.result.confidence_tier} ({job.result.confidence_pct}%)</p>
-              {!hideMass && job.result.mass_range && (
-                <p>
-                  범위: {job.result.mass_range.min_g.toFixed(2)} ~ {job.result.mass_range.max_g.toFixed(2)} g
-                </p>
-              )}
-              {(fusion || recon) && (
-                <div
-                  style={{
-                    marginTop: '0.75rem',
-                    padding: '0.6rem 0.75rem',
-                    background: '#f8fafc',
-                    borderRadius: 6,
-                    fontSize: '0.85rem',
-                    color: '#334155',
-                  }}
-                >
-                  <strong style={{ display: 'block', marginBottom: '0.35rem' }}>측정값</strong>
-                  {fusion?.card_distance_mm != null && (
+              {!hideMass && job.result.mass_range ? (
+                <p>범위: {job.result.mass_range.min_g.toFixed(2)} ~ {job.result.mass_range.max_g.toFixed(2)} g</p>
+              ) : null}
+              <p className="text-small">
+                {!hideMass ? `V_hull=${job.result.V_hull_mm3} mm³, V_adj=${job.result.V_adj_mm3} mm³, ` : ''}
+                {job.result.algorithm_version}
+              </p>
+              {fusion || recon ? (
+                <div className="notice notice--slate" style={{ marginTop: '0.75rem' }}>
+                  <p className="notice__title">측정값</p>
+                  {fusion?.card_distance_mm != null ? (
                     <div>
                       카드까지 거리: {fusion.card_distance_mm.toFixed(0)} mm
-                      {fusion.depth_rmse_mm != null && (
-                        <span style={{ color: '#64748b' }}>
-                          {' '}(거리 오차 ±{fusion.depth_rmse_mm.toFixed(1)} mm)
-                        </span>
-                      )}
+                      {fusion.depth_rmse_mm != null ? ` (거리 오차 ±${fusion.depth_rmse_mm.toFixed(1)} mm)` : ''}
                     </div>
-                  )}
-                  {recon?.length_mm != null && recon?.width_mm != null && (
-                    <div>
-                      실제 크기: {recon.length_mm.toFixed(1)} × {recon.width_mm.toFixed(1)} mm
-                    </div>
-                  )}
-                  {recon?.h_mean_mm != null && (
+                  ) : null}
+                  {recon?.length_mm != null && recon?.width_mm != null ? (
+                    <div>실제 크기: {recon.length_mm.toFixed(1)} × {recon.width_mm.toFixed(1)} mm</div>
+                  ) : null}
+                  {recon?.h_mean_mm != null ? (
                     <div>
                       평균 두께: {recon.h_mean_mm.toFixed(1)} mm
-                      {recon.thickness_clamp && (
-                        <span style={{ color: '#b45309' }}> (관측 실패 — 기준값 가정)</span>
-                      )}
+                      {recon.thickness_clamp ? ' (관측 실패 — 기준값 가정)' : ''}
                     </div>
-                  )}
-                  {fusion?.anchor_used === false && (
-                    <div style={{ color: '#b45309' }}>기준물(신용카드) 없이 추정한 값입니다.</div>
-                  )}
+                  ) : null}
+                  {fusion?.anchor_used === false ? (
+                    <div>기준물(신용카드) 없이 추정한 값입니다.</div>
+                  ) : null}
                 </div>
-              )}
-              {sanity?.warnings && sanity.warnings.length > 0 && (
-                <ul style={{ color: '#92400e', fontSize: '0.9rem', marginTop: '0.5rem' }}>
+              ) : null}
+              {sanity?.warnings?.length ? (
+                <ul className="msg-warn--soft" style={{ paddingLeft: '1.15rem' }}>
                   {sanity.warnings.map((w, i) => (
                     <li key={i}>{w}</li>
                   ))}
                 </ul>
-              )}
-              <p style={{ fontSize: '0.85rem', color: '#64748b' }}>
-                {!hideMass && (
-                  <>
-                    V_hull={job.result.V_hull_mm3} mm³, V_adj={job.result.V_adj_mm3} mm³,{' '}
-                  </>
-                )}
-                {job.result.algorithm_version}
-              </p>
+              ) : null}
+              {job.result.meta?.workflow?.degraded_reasons?.length ? (
+                <p className="msg-warn--soft">
+                  저신뢰 사유: {job.result.meta.workflow.degraded_reasons.join(', ')}
+                </p>
+              ) : null}
               {hideQuote ? (
-                <p style={{ marginTop: '0.75rem', color: '#92400e' }}>
-                  신뢰도가 낮아 참고 시세·원화 견적은 표시하지 않습니다. (§14.1)
+                <p className="msg-warn--soft" style={{ marginTop: '0.75rem' }}>
+                  신뢰도가 낮아 참고 시세·원화 견적은 표시하지 않습니다.
                 </p>
               ) : (
-                <p style={{ marginTop: '0.75rem', color: '#64748b' }}>
+                <p className="text-muted" style={{ marginTop: '0.75rem' }}>
                   시세 연동 전 — 금액 견적 UI는 추후 연결합니다.
                 </p>
               )}
-              <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '1rem' }}>
-                본 결과는 감정·법적 효력이 없는 참고 추정입니다.
-              </p>
             </>
-          )}
+          ) : null}
         </section>
-      )}
+      ) : null}
     </div>
   );
 }

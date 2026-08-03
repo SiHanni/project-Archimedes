@@ -44,7 +44,57 @@ docker compose up --build
 
 업로드 후 **worker-consumer** 로그에서 job 처리 여부를 확인합니다.
 
-### 코드 수정 후 빠른 재빌드 (worker / consumer / web)
+### 다음날 / PC 재부팅 후 한 번에 기동 (도커 + Vercel용 터널)
+
+어제 `docker compose down` 했어도 **이 스크립트 한 번**이면 전체 스택을 백그라운드로 띄우고, API가 뜰 때까지 기다린 뒤 **cloudflared** 터널까지 켭니다. (출력되는 `VITE_API_BASE`를 Vercel에 넣고 재배포 — URL이 바뀌면 매번 갱신)
+
+```bash
+./scripts/start-dev-day.sh
+```
+
+- `--no-dev` : `docker-compose.yml` 만 (이미지 빌드 그대로, 마운트 없음)
+- `--no-tunnel` : 도커만 (터널 없이 로컬만)
+- `--watch` : Compose 2.23+ 에서 web 소스 감시 재빌드 (dev 오버레이와 함께)
+
+`./scripts/dev-up.sh --tunnel` 은 내부적으로 위와 동일하게 `start-dev-day.sh --dev` 를 실행합니다.
+
+### 로컬 개발: 서버 코드 저장 시 자동 반영 (재빌드 최소)
+
+`api/` · `worker/app/` 를 수정할 때마다 이미지를 다시 빌드하지 않도록, 개발용 오버레이를 둘 수 있습니다.
+
+```bash
+./scripts/dev-up.sh
+```
+
+- **API**: `nest start --watch` + `./api/src` 마운트  
+- **worker**: `uvicorn --reload` + `./worker/app` 마운트  
+- **worker-consumer**: `watchfiles` 로 `app` 변경 시 프로세스 재실행  
+
+프론트(`web/`)까지 저장할 때마다 **이미지 재빌드**까지 쓰려면(Docker Compose **2.23+**):
+
+```bash
+./scripts/dev-up.sh --watch
+```
+
+`package.json` / `package-lock.json` / `pyproject.toml` 등 **의존성을 바꾼 뒤**에는 해당 서비스만 다시 빌드하세요.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml build api worker worker-consumer
+```
+
+### Vercel에서 로컬 API 붙일 때 (퀵 터널 — 바로 실행)
+
+1. **cloudflared** 없으면: `brew install cloudflare/cloudflare/cloudflared`
+2. **한 줄**: `./scripts/start-dev-day.sh`  
+   (도커 올리고 API 뜰 때까지 기다린 뒤 터널 켬. 터널만 다시 켤 땐 `./scripts/tunnel-api.sh`)
+3. 터미널에 나온 **`VITE_API_BASE=…/v1`** 를 Vercel Production에 붙여 넣고 재배포.  
+   주소가 바뀌면 그때 다시 복사·재배포.
+
+**퀵 터널이 아니라 고정 URL로 뜨면** `.env`에 `CLOUDFLARE_TUNNEL_TOKEN` / `ARCHIMEDES_PUBLIC_API_BASE` 를 넣었거나 `infra/cloudflared/config.yml` 이 있는 경우입니다. 퀵만 쓰려면 그 변수·파일을 빼면 됩니다.
+
+종료: `./scripts/tunnel-api-stop.sh` · (옵션) **고정 URL·도메인**은 `docs/cloudflare-stable-tunnel.md`
+
+### 코드 수정 후 통째로 재빌드 (프로덕션 이미지에 가깝게)
 
 ```bash
 bash scripts/docker-rebuild-app.sh

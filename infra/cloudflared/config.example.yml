@@ -1,0 +1,12 @@
+# 예시: 이름 있는 터널 (cloudflared tunnel login 후 생성한 tunnel ID 사용)
+# 이 파일을 config.yml 로 복사하고 tunnel / credentials-file 을 본인 값으로 채운 뒤:
+#   export ARCHIMEDES_CLOUDFLARED_CONFIG="$PWD/infra/cloudflared/config.yml"
+#   export ARCHIMEDES_PUBLIC_API_BASE="https://api.본인도메인.com"
+# 상세: docs/cloudflare-stable-tunnel.md
+#
+# tunnel: <tunnel-uuid>
+# credentials-file: /절대경로/credentials.json
+# ingress:
+#   - hostname: api.example.com
+#     service: http://127.0.0.1:23000
+#   - service: http_status:404

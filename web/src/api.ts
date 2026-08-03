@@ -1,8 +1,8 @@
-const rawApiBase = import.meta.env.VITE_API_BASE as string | undefined;
-const prefix = (rawApiBase || "/api").replace(/\/+$/, "");
+/** Docker nginx 프록시(`/api`→`/v1`) 또는 Vercel 빌드 시 `VITE_API_BASE`(터널 `/v1`) */
+export const apiBase = (import.meta.env.VITE_API_BASE || '/api').replace(/\/$/, '');
 
 export async function postJob(form: FormData): Promise<{ id: string; status: string }> {
-  const r = await fetch(`${prefix}/jobs`, {
+  const r = await fetch(`${apiBase}/jobs`, {
     method: 'POST',
     body: form,
   });
@@ -14,7 +14,7 @@ export async function postJob(form: FormData): Promise<{ id: string; status: str
 }
 
 export async function getJob(id: string): Promise<JobDto> {
-  const r = await fetch(`${prefix}/jobs/${id}`);
+  const r = await fetch(`${apiBase}/jobs/${id}`);
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
@@ -26,6 +26,14 @@ export type JobSanityMeta = {
   used_card_fallback_views?: string[];
   warnings?: string[];
   raw_mass_est_g?: number;
+};
+
+/** worker `runner` — soft/hard 등급과 재촬영 유도 */
+export type JobWorkflowMeta = {
+  error_severity?: 'none' | 'soft' | 'hard';
+  suggested_action?: 'retry_one_view' | 'retake_photo' | 'continue_low_confidence' | string;
+  retry_views?: string[];
+  degraded_reasons?: string[];
 };
 
 /** worker `scale_fusion.ScaleFusionResult.as_meta()` */
@@ -61,9 +69,16 @@ export type JobDto = {
     meta?: {
       capture_mode?: string;
       sanity?: JobSanityMeta;
+      workflow?: JobWorkflowMeta;
       scale_fusion?: JobScaleFusionMeta;
       reconstruction?: JobReconstructionMeta;
     };
   } | null;
-  error: { code: string; message: string } | null;
+  error: {
+    code: string;
+    message: string;
+    retryViews?: string[];
+    errorSeverity?: 'soft' | 'hard';
+    suggestedAction?: string | null;
+  } | null;
 };

@@ -15,6 +15,8 @@ def check_image_quality(bgr: np.ndarray, settings: Settings, view: str) -> None:
             "ERR_RESOLUTION",
             f"Short edge {short}px < {settings.min_short_edge_px}px",
             retry_step=view,
+            error_severity="hard",
+            suggested_action="retry_one_view",
         )
 
     gray = bgr[:, :, 1] if bgr.ndim == 3 else bgr  # green channel quick
@@ -24,6 +26,8 @@ def check_image_quality(bgr: np.ndarray, settings: Settings, view: str) -> None:
             "ERR_BLUR",
             f"Laplacian variance {lap:.1f} below threshold",
             retry_step=view,
+            error_severity="soft",
+            suggested_action="retry_one_view",
         )
 
     mean = float(gray.mean())
@@ -32,6 +36,8 @@ def check_image_quality(bgr: np.ndarray, settings: Settings, view: str) -> None:
             "ERR_EXPOSURE",
             f"Mean intensity {mean:.1f} out of acceptable range",
             retry_step=view,
+            error_severity="soft",
+            suggested_action="retry_one_view",
         )
 
 

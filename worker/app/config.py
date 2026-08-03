@@ -64,6 +64,11 @@ class Settings(BaseSettings):
     )
     # 1이면 앵커(카드) 없는 job 을 ERR_SCALE_UNRESOLVED 로 거절
     require_anchor: bool = Field(default=False, validation_alias="ARCHIMEDES_REQUIRE_ANCHOR")
+    # 홀드아웃 depth RMSE / 카드 거리 가 이 비율을 넘으면 신뢰도 감점.
+    # 길이 오차는 부피에서 3배가 되므로 1% 면 부피 3% — 이 정도를 경계로 둔다.
+    depth_rmse_penalty_ratio: float = Field(
+        default=0.01, validation_alias="ARCHIMEDES_DEPTH_RMSE_PENALTY_RATIO"
+    )
     # True(기본): 카드 면 위(on_card_inner)로 잡힌 세그는 거절 — §4 동일 평면·옆 배치와 정합, 과대 부피 방지
     reject_jewel_on_card: bool = Field(
         default=True, validation_alias="ARCHIMEDES_REJECT_ON_CARD_INNER"

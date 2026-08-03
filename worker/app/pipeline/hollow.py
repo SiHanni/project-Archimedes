@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.constants import (
     HOLLOW_ALPHA_BETA,
+    HOLLOW_ALPHA_BETA_DEPTH,
     MATERIALS,
     METAL_ALIASES,
     PURITY_ALIASES,
@@ -10,10 +11,23 @@ from app.constants import (
 from app.pipeline.exceptions import PipelineError
 
 
-def adjusted_volume_mm3(V_hull: float, product_k: str) -> tuple[float, float, float]:
-    """Returns V_adj, alpha, beta."""
-    alpha, beta = HOLLOW_ALPHA_BETA.get(product_k.lower(), HOLLOW_ALPHA_BETA["other"])
+def adjusted_volume_mm3(
+    V_hull: float, product_k: str, *, table: dict[str, tuple[float, float]] | None = None
+) -> tuple[float, float, float]:
+    """
+    V_adj = α_k · V_hull + β_k. Returns (V_adj, alpha, beta).
+
+    `table` 로 경로별 α 표를 고른다. 다뷰(v1) Visual Hull 과 단일사진(v2) 2.5D 부피는
+    과대추정 성격이 완전히 달라 같은 α 를 쓰면 안 된다.
+    """
+    t = table if table is not None else HOLLOW_ALPHA_BETA
+    alpha, beta = t.get(product_k.lower(), t["other"])
     return alpha * V_hull + beta, alpha, beta
+
+
+def adjusted_volume_depth_mm3(V_25d: float, product_k: str) -> tuple[float, float, float]:
+    """단일사진(depth) 경로 전용 — `HOLLOW_ALPHA_BETA_DEPTH`."""
+    return adjusted_volume_mm3(V_25d, product_k, table=HOLLOW_ALPHA_BETA_DEPTH)
 
 
 def resolve_material(metal: str, purity: str) -> Material:

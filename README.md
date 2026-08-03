@@ -156,10 +156,29 @@ export ARCHIMEDES_DEPTH_OUTPUT_KIND=metric  # metric | affine_invariant | relati
 
 출력 형상이 계약과 다르면 `ERR_MODEL_UNAVAILABLE` 로 **즉시 실패**한다(조용히 틀린 값을 내지 않음).
 
+가중치를 꽂은 뒤 계약이 맞는지 한 번에 확인:
+
+```bash
+python worker/scripts/check_models.py   # 실패 시 exit 1
+```
+
+## 학습형 잔차 보정 (§4.4)
+
+물리식을 버리지 않고 `m_final = m_physics · exp(w·x)` 의 잔차만 학습한다.
+로그 공간이라 어떤 계수에서도 무게가 음수가 되지 않고, w=0 이면 원래 값이다.
+
+```bash
+python worker/scripts/fit_residual_model.py --min-n 30 --out residual_v1.json
+```
+
+표본이 부족하면 계수를 뽑지 않고, 홀드아웃 RMSE 가 개선되지 않으면 경고한다.
+**자동 반영하지 않는다** — 배포는 수동 승인(§14.4 버전 태그·롤백).
+
 ## 알려진 한계 (다음 이터)
 
 - 깊이·검출·분할 **실제 모델 미탑재** — 스텁은 두께를 관측하지 못해 제품 기준값으로 클램프한다(결과에 명시됨).
-- α·두께 계수는 **물리적 근거에서 출발한 초기값**. 실측이 쌓이면 §4.4 학습형 잔차로 이행.
+- α·두께 계수는 **물리적 근거에서 출발한 초기값**. 실측이 쌓이면 §4.4 학습형 잔차로 이행
+  (스캐폴드는 완성 — `scripts/fit_residual_model.py`, 데이터만 있으면 바로 돈다).
 - 골든 실사진 없음 — `golden/README.md` 절차대로 내부 구성 필요.
 - 시세 기본값은 **고정 표**(항상 `stale`). 실시간 소스는 `PRICE_BACKEND=http` 로 연결.
 - OTEL은 endpoint 설정 시에만 활성.

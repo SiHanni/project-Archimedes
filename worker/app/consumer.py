@@ -11,6 +11,8 @@ import time
 import traceback
 
 import redis
+from redis.exceptions import RedisError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from app.config import get_settings
 from app.db import jobs as jobs_db
@@ -78,14 +80,26 @@ def process_one(job_id: str) -> None:
         conn.close()
 
 
+# BRPOP 대기 시간. 소켓 타임아웃은 이보다 넉넉해야 한다.
+_BRPOP_TIMEOUT_S = 5
+
+
 def main() -> None:
     settings = get_settings()
-    r = redis.from_url(settings.redis_url)
+    # socket_timeout 을 BRPOP 대기보다 길게 잡지 않으면, 큐가 비어 있는 **정상 상황**마다
+    # 소켓 읽기 타임아웃 예외가 올라와 로그가 스택트레이스로 뒤덮인다.
+    # (동작에는 문제가 없지만 진짜 에러를 가려 버린다)
+    r = redis.from_url(
+        settings.redis_url,
+        socket_timeout=_BRPOP_TIMEOUT_S + 10,
+        socket_keepalive=True,
+        health_check_interval=30,
+    )
     q = settings.queue_name
     log.info("listening on %s", q)
     while True:
         try:
-            item = r.brpop(q, timeout=5)
+            item = r.brpop(q, timeout=_BRPOP_TIMEOUT_S)
             if not item:
                 continue
             _, job_id_bytes = item
@@ -93,6 +107,13 @@ def main() -> None:
             process_one(job_id)
         except KeyboardInterrupt:
             sys.exit(0)
+        except RedisTimeoutError:
+            # 큐가 비어 대기 시간이 만료된 것 — 정상 흐름이다
+            continue
+        except RedisError as e:
+            # 브로커 재기동 등 — 스택트레이스 없이 한 줄로
+            log.warning("redis error, retrying: %s", e)
+            time.sleep(1.0)
         except Exception:
             log.exception("loop error")
             time.sleep(1.0)

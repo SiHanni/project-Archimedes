@@ -155,6 +155,14 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     };
     const parsedResult = parseJson(r.result_json);
     const resultObj = parsedResult as Record<string, unknown> | null;
+    // soft 에러 job 은 result_json 에 **분석 결과가 아니라 에러 페이로드**가 들어간다.
+    // 이걸 그대로 `result` 로 내보내면 클라이언트가 result 가 있다고 믿고
+    // mass_est_g 같은 필드를 건드려 터진다(실제로 흰 화면 사고).
+    // 분석 결과의 판별 기준은 `mass_est_g` 존재 여부다.
+    const isAnalysis =
+      !!resultObj && typeof (resultObj as { mass_est_g?: unknown }).mass_est_g === 'number';
+    const workflow =
+      (resultObj?.meta as Record<string, unknown> | undefined)?.workflow ?? null;
     const nestedErr =
       resultObj && typeof resultObj === 'object' && resultObj.error && typeof resultObj.error === 'object'
         ? (resultObj.error as Record<string, unknown>)
@@ -175,13 +183,17 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
           ? 'retry_one_view'
           : null;
     const mergedRetryViews = retryViews.length ? retryViews : retryStep ? [retryStep] : [];
-    const quote = await this.buildQuoteFor(parseJson(r.input_json), resultObj);
+    const quote = isAnalysis
+      ? await this.buildQuoteFor(parseJson(r.input_json), resultObj)
+      : null;
     return {
       id: r.id,
       status: r.status,
       algorithmVersion: r.algorithm_version,
       input: parseJson(r.input_json),
-      result: parsedResult,
+      // 분석 결과가 아니면 null — 에러 정보는 error/workflow 로만 전달한다
+      result: isAnalysis ? parsedResult : null,
+      workflow,
       error:
         r.error_code != null
           ? {

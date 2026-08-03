@@ -1,4 +1,5 @@
 import { Link, Route, Routes } from 'react-router-dom';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { HomePage } from './pages/HomePage';
 import { LegalPage } from './pages/LegalPage';
 
@@ -23,11 +24,13 @@ export default function App() {
           <Link to="/legal/privacy">개인정보</Link>
         </nav>
       </header>
-      <Routes>
+      <ErrorBoundary>
+        <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/legal/terms" element={<LegalPage kind="terms" />} />
         <Route path="/legal/privacy" element={<LegalPage kind="privacy" />} />
       </Routes>
+      </ErrorBoundary>
     </div>
   );
 }

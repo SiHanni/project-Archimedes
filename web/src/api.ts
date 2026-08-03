@@ -84,14 +84,20 @@ export function isQuoteSuppressed(
 export type JobDto = {
   id: string;
   status: string;
+  algorithmVersion?: string | null;
+  /**
+   * soft 에러 job 은 분석 결과가 없다. 그때도 재촬영 안내가 필요하므로
+   * 서버가 workflow 를 **result 밖**으로 따로 내려준다.
+   */
+  workflow?: JobWorkflowMeta | null;
   result: {
-    mass_est_g: number;
-    confidence_tier: string;
-    confidence_pct: number;
+    mass_est_g?: number;
+    confidence_tier?: string;
+    confidence_pct?: number;
     mass_range?: { min_g: number; estimate_g: number; max_g: number } | null;
-    V_hull_mm3: number;
-    V_adj_mm3: number;
-    algorithm_version: string;
+    V_hull_mm3?: number;
+    V_adj_mm3?: number;
+    algorithm_version?: string;
     meta?: {
       capture_mode?: string;
       sanity?: JobSanityMeta;

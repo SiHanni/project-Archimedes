@@ -184,13 +184,16 @@ export function HomePage() {
   const quote = job?.quote ?? null;
   const won = (v: number) => v.toLocaleString('ko-KR');
   const massG = job?.result?.mass_est_g;
+  const hasMass = typeof massG === 'number' && Number.isFinite(massG);
   const hideMass =
+    !hasMass ||
     Boolean(sanity?.suppress_mass_display) ||
-    (typeof massG === 'number' && massG > CLIENT_ABSURD_MASS_G);
+    (hasMass && massG > CLIENT_ABSURD_MASS_G);
+  const workflow = job?.workflow ?? job?.result?.meta?.workflow ?? null;
   const retryViews =
     (job?.error?.retryViews && job.error.retryViews.length > 0
       ? job.error.retryViews
-      : job?.result?.meta?.workflow?.retry_views) ?? [];
+      : workflow?.retry_views) ?? [];
   const retrySet = new Set(retryViews);
 
   return (
@@ -401,25 +404,32 @@ export function HomePage() {
               </p>
             )
           ) : null}
+          {workflow?.degraded_reasons?.length ? (
+            <p className="msg-warn--soft">저신뢰 사유: {workflow.degraded_reasons.join(', ')}</p>
+          ) : null}
           {job.result ? (
             <>
               {hideMass ? (
                 <p className="msg-warn">
-                  추정 무게가 비현실적으로 커 보여 숫자를 숨깁니다. 카드 옆 바닥에 놓고 다시 촬영해 주세요.
+                  {hasMass
+                    ? '추정 무게가 비현실적으로 커 보여 숫자를 숨깁니다. 카드 옆 바닥에 놓고 다시 촬영해 주세요.'
+                    : '이번 사진으로는 무게를 산출하지 못했습니다. 아래 안내를 보고 다시 시도해 주세요.'}
                 </p>
               ) : (
                 <p>
                   추정 무게:{' '}
-                  <strong style={{ fontSize: '1.15rem', color: 'var(--gold-deep)' }}>{job.result.mass_est_g.toFixed(3)} g</strong>
+                  <strong style={{ fontSize: '1.15rem', color: 'var(--gold-deep)' }}>{massG!.toFixed(3)} g</strong>
                 </p>
               )}
-              <p>신뢰도 등급: {job.result.confidence_tier} ({job.result.confidence_pct}%)</p>
+              {job.result.confidence_tier ? (
+                <p>신뢰도 등급: {job.result.confidence_tier} ({job.result.confidence_pct}%)</p>
+              ) : null}
               {!hideMass && job.result.mass_range ? (
                 <p>범위: {job.result.mass_range.min_g.toFixed(2)} ~ {job.result.mass_range.max_g.toFixed(2)} g</p>
               ) : null}
               <p className="text-small">
                 {!hideMass ? `V_hull=${job.result.V_hull_mm3} mm³, V_adj=${job.result.V_adj_mm3} mm³, ` : ''}
-                {job.result.algorithm_version}
+                {job.result.algorithm_version ?? job.algorithmVersion ?? ''}
               </p>
               {fusion || recon ? (
                 <div className="notice notice--slate" style={{ marginTop: '0.75rem' }}>
@@ -451,11 +461,7 @@ export function HomePage() {
                   ))}
                 </ul>
               ) : null}
-              {job.result.meta?.workflow?.degraded_reasons?.length ? (
-                <p className="msg-warn--soft">
-                  저신뢰 사유: {job.result.meta.workflow.degraded_reasons.join(', ')}
-                </p>
-              ) : null}
+
               {quote && !isQuoteSuppressed(quote) ? (
                 <div className="notice notice--tips" style={{ marginTop: '0.75rem' }}>
                   <p className="notice__title">예상 견적</p>

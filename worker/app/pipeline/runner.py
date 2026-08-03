@@ -50,9 +50,15 @@ def _check_sigma_consistency(sigmas: dict[str, float], ratio: float, settings: S
         raise PipelineError("ERR_SCALE_MISMATCH", "Invalid sigma median", retry_step=None)
     for v, s in sigmas.items():
         if abs(s - med) / med > ratio:
+            # 뷰마다 카드가 다른 크기로 찍혔다는 뜻 = 촬영 거리가 제각각이다.
+            # 원인이 사용자 행동에 있으므로 숫자만 던지지 말고 무엇을 고쳐야 하는지 적는다.
+            size_ratio = s / med
             raise PipelineError(
                 "ERR_SCALE_MISMATCH",
-                f"sigma view {v}={s:.5f} vs median {med:.5f}",
+                f"'{v}' 컷의 촬영 거리가 다른 컷과 많이 다릅니다"
+                f"(카드 크기 기준 약 {size_ratio:.1f}배). "
+                f"5장을 **같은 높이·같은 거리**에서 찍어 주세요. "
+                f"(내부값 sigma={s:.5f}, 중앙값={med:.5f})",
                 retry_step=v,
                 error_severity="soft",
                 suggested_action="retry_one_view",

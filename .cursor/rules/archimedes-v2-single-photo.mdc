@@ -236,9 +236,24 @@ $$\text{RMSE}_{\text{depth}} = \sqrt{\frac{1}{n}\sum_i \bigl(D(p_i) - D_{\text{c
 | 단계 | 내용 | 현재 상태 |
 |------|------|-----------|
 | 수집 API | job + 실측 중량 적재 | **구현 완료** (`POST /v1/jobs/:id/feedback`, `mass_feedback`) |
-| 세미-오토 라벨링 | 검출 → 분할 → 사람 검수 → 마스크 저장 | 미구현 — `Detector`/`Segmenter` 붙인 뒤 착수 |
+| 평가 지표 | 중량 RMSE·MAPE·bias, 거리 RMSE | **구현 완료** (`app/eval/`, `scripts/evaluate_rmse.py`, 골든 집계) |
+| 파이프라인 골격 | 검출·분할·깊이 백엔드 교체 구조 | **구현 완료** (`pipeline/backends/`, ONNX 계약 검증 포함) |
+| 실제 모델 | YOLO/SAM/metric depth ONNX 가중치 | **미탑재** — 벤치마크 후 선정 |
+| 세미-오토 라벨링 | 검출 → 분할 → 사람 검수 → 마스크 저장 | 미구현 |
 | 속성화 | (사진, 품목, 함량, 중량, 마스크) 데이터셋 | 스키마만 존재 |
 | 잔차 학습 | §4.4 $g_\theta$ | 데이터 확보 후 |
+
+### 8.1 구현 상태 요약 (이 레포)
+
+| 항목 | 상태 | 위치 |
+|------|------|------|
+| §0.4 v1 결함 5건 | **수정 완료** | `view_axes.py`, `card.py`, `voxel.py`, `ingest.py` |
+| §3 스케일 융합 | **구현 완료** | `scale_fusion.py` |
+| §3.3 내부 파라미터 K | **구현 완료** (기기 프리셋 표는 비어 있음) | `camera.py` |
+| §4 2.5D 부피 | **구현 완료** (height_field / prism_pca) | `reconstruct.py` |
+| §5 다뷰 모드 | **구현 완료** | `runner._run_multiview` |
+| §6 에러 코드 | **구현 완료** | 각 모듈 `PipelineError` |
+| §7 평가 | **구현 완료** | `app/eval/`, `tests/test_golden_manifest.py` |
 
 **표본이 없는 동안은 절대 오차%를 주장하지 않는다.** 재현성·실패율·tier 분포를 먼저 본다(`archimedes-accuracy-data-playbook.mdc` §4).
 

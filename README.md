@@ -9,12 +9,24 @@
 **CV/기하 용어 정리**: `.cursor/rules/archimedes-concepts-glossary.mdc`  
 **정확도·데이터 플레이북**(골든/실측 없을 때): `.cursor/rules/archimedes-accuracy-data-playbook.mdc`
 
-## 현재 레포 상태 (스캐폴드)
+## 현재 레포 상태
 
-- **worker**: FastAPI `/health`, Redis 큐 소비 + OpenCV 파이프라인(v0: 슬랩 AABB 부피, 카드·세그 휴리스틱).
-- **api**: NestJS — `POST /v1/jobs` (multipart 5뷰), `GET /v1/jobs/:id`, 법무 초안 `/v1/legal/*`.
-- **web**: React — §9.1 분기, 체크리스트, 각도별 파일 업로드, 결과·저신뢰 시 견적 숨김(§14.1).
+- **worker**: FastAPI `/health`, Redis 큐 소비 + 파이프라인 2경로
+  - `single` (기본): 검출 → 분할 → 깊이추정 → **카드 앵커 스케일 융합** → 2.5D 부피
+  - `multiview`: 5뷰 카드 σ → 실루엣 → 복셀 카빙 (고신뢰 옵션)
+- **api**: NestJS — `POST /v1/jobs` (multipart `image` 1장 **또는** 5뷰), `GET /v1/jobs/:id`,
+  실측 피드백 `POST /v1/jobs/:id/feedback`, 법무 초안 `/v1/legal/*`.
+- **web**: React — §9.1 분기, 촬영 체크리스트, 업로드 모드 선택, 측정값·경고 노출,
+  저신뢰 시 견적 숨김(§14.1).
 - **infra**: Docker Compose — MySQL, Redis, MinIO, worker, worker-consumer, api, web.
+
+### 신용카드는 왜 필요한가
+
+사진만으로는 물체가 몇 mm 인지 알 수 없다. **ISO/IEC 7810 ID-1**(85.60 × 53.98 mm)
+규격이 고정된 신용카드를 함께 찍으면
+(1) 깊이 모델 출력을 **mm 로 환산**하고, (2) 물체가 놓인 **바닥면**을 얻고,
+(3) 실측 치수를 알기에 **매 job 마다 거리 오차(RMSE)를 잴 수 있다**.
+카드가 없으면 깊이 모델 단독으로 진행하되 신뢰도를 낮춘다.
 
 로컬 개발 시 `.env`는 **선택**입니다(Compose에 기본값 포함). 호스트에서 worker만 돌릴 때는 `cp .env.example .env` 후 MinIO/MySQL 주소를 맞춥니다.
 
@@ -40,7 +52,7 @@ bash scripts/docker-rebuild-app.sh
 
 API·DB·인프라까지 전부 다시 올리려면 `docker compose up --build` 를 쓰면 됩니다.
 
-**중요**: v0 부피 코어는 뷰별 실루엣을 **서로 다른 시선**으로 해석합니다. **동일 사진을 5슬롯에 넣으면** 기하 충돌로 `ERR_VOLUME`이 날 수 있습니다. 데모·테스트 시에는 각도별로 **서로 다른 파일**을 올려 주세요.
+**중요**: `multiview` 모드는 뷰별 실루엣을 **서로 다른 시선**으로 해석합니다. 각도별로 **서로 다른 파일**을 올려 주세요(모순되면 `ERR_VOLUME`). 단일사진 모드에는 해당하지 않습니다.
 
 ## Worker 단독 테스트
 
@@ -58,11 +70,30 @@ ruff check app tests
 
 **실측 피드백 → Hollow α 제안**: `POST /v1/jobs/{id}/feedback` 후 `python worker/scripts/calibration_suggest.py` — `jobs/README.md`.
 
+**평가 지표 (계획서 평가표 3·4)**: `python worker/scripts/evaluate_rmse.py` — 제품 형태별 중량 RMSE·MAPE·bias 와 앵커 홀드아웃 거리 RMSE.
+
+## 백엔드 교체 (ONNX)
+
+검출·분할·깊이는 `ARCHIMEDES_*_BACKEND` 로 갈아끼운다. 기본은 모델 없이 도는 `stub`/`heuristic`.
+
+```bash
+pip install -e ".[onnx]"
+# 가중치는 이미지에 굽지 않고 볼륨으로 주입
+export ARCHIMEDES_ONNX_MODEL_DIR=/models
+export ARCHIMEDES_DETECTOR_BACKEND=onnx     # detector.onnx
+export ARCHIMEDES_SEGMENTATION_BACKEND=onnx # segmenter.onnx
+export ARCHIMEDES_DEPTH_BACKEND=onnx        # depth.onnx
+export ARCHIMEDES_DEPTH_OUTPUT_KIND=metric  # metric | affine_invariant | relative
+```
+
+출력 형상이 계약과 다르면 `ERR_MODEL_UNAVAILABLE` 로 **즉시 실패**한다(조용히 틀린 값을 내지 않음).
+
 ## 알려진 한계 (다음 이터)
 
-- 부피 코어는 **직교 슬랩 AABB v0**; 전체 **복셀 카빙·Precision 호모그래피**는 스펙 대비 미완.
-- 세그는 **색/Otsu** 수준 — 주얼리 특화 모델(§15) 교체 예정.
-- Phase 7: `docs/golden.md`, `jobs/` 배치 스텁; OTEL은 endpoint 설정 시에만 활성.
+- 깊이·검출·분할 **실제 모델 미탑재** — 스텁은 두께를 관측하지 못해 제품 기준값으로 클램프한다(결과에 명시됨).
+- α·두께 계수는 **물리적 근거에서 출발한 초기값**. 실측이 쌓이면 §4.4 학습형 잔차로 이행.
+- 골든 실사진 없음 — `golden/README.md` 절차대로 내부 구성 필요.
+- OTEL은 endpoint 설정 시에만 활성.
 
 ## 라이선스
 

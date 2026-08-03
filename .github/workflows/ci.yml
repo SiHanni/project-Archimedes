@@ -19,6 +19,36 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check app tests
       - run: pytest
+      # 기본 addopts 가 `-m "not slow"` 라 OpenCV 합성 체인이 빠진다.
+      # 실제 파이프라인이 도는 테스트이므로 CI 에서는 반드시 돌린다.
+      - run: pytest -m slow
+
+  api:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install
+      - run: npm run build
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install
+      - run: npx tsc --noEmit -p tsconfig.json
+      - run: npm run build
 
   docker:
     runs-on: ubuntu-latest

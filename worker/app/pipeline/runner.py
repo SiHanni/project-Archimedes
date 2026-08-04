@@ -51,6 +51,11 @@ log = logging.getLogger(__name__)
 
 SINGLE_VIEW_KEY = "front"
 
+# 측정 무게 / 표기 무게 가 이 배수를 넘으면 몸체가 순금이 아니다 = 도금·금박.
+# 순금이라면 두 값이 비슷해야 하고, 우리 부피 오차(§15.1 σ≈0.5)를 감안해도
+# 3배를 넘기 어렵다.
+PLATING_RATIO_THRESHOLD = 3.0
+
 
 def _sanity_mass_cap_g(product_k: str, settings: Settings) -> float:
     pk = product_k.lower()
@@ -344,7 +349,18 @@ def _run_single(
     # 표기값을 받으면 측정 대신 그걸 쓴다 — 우리 추정보다 훨씬 정확하다.
     # 측정값이 아니라는 사실은 mass_source 로 명시한다.
     declared_g = inp.declared_gold_g if (inp.declared_gold_g or 0) > 0 else None
-    if volume_unmeasurable and declared_g:
+    measured_mass = mass
+    plating_detected = False
+    plating_ratio: float | None = None
+
+    if declared_g:
+        # 표기값이 있으면 **측정 부피와 대조**해 도금 여부를 판정할 수 있다.
+        # 속이 꽉 찬 순금이라면 두 값이 비슷해야 한다. 측정이 표기보다 몇 배나
+        # 크면 몸체가 금이 아니라는 뜻 — 도금·금박이다.
+        # 실측: "FINE GOLD 0.05g" 각인 바를 goldbar 로 재면 1.7g 이 나온다.
+        #       0.05g 을 그 면적(≈900mm²)에 펴면 두께 2.9μm = 도금.
+        plating_ratio = measured_mass / float(declared_g) if declared_g > 0 else None
+        plating_detected = plating_ratio is not None and plating_ratio > PLATING_RATIO_THRESHOLD
         mass = float(declared_g)
         volume_unmeasurable = False
         mass_source = "declared_label"
@@ -422,10 +438,17 @@ def _run_single(
     if mass_source == "declared_label":
         warnings.insert(
             0,
-            f"도금·금박 제품이라 부피로는 금 함량을 잴 수 없어, 입력하신 "
-            f"제품 표기 {declared_g:g} g 을 그대로 사용했습니다. "
+            f"입력하신 제품 표기 {declared_g:g} g 을 그대로 사용했습니다. "
             "아래 실측 치수는 제품 확인용 참고값입니다.",
         )
+        if plating_detected and plating_ratio:
+            warnings.insert(
+                1,
+                f"사진에서 잰 부피대로면 순금 {measured_mass:.2f} g 이 나와야 하는데 "
+                f"표기는 {declared_g:g} g 입니다(약 {plating_ratio:.0f}배 차이). "
+                "몸체가 순금이 아닌 **도금·금박 제품**으로 보입니다. "
+                "이런 제품은 크기로 금 함량을 알 수 없어 표기값을 쓰는 것이 맞습니다.",
+            )
     if volume_unmeasurable:
         warnings.insert(
             0,
@@ -440,6 +463,9 @@ def _run_single(
         "implausible_mass": implausible_mass,
         "volume_unmeasurable": volume_unmeasurable,
         "mass_source": mass_source,
+        "plating_detected": plating_detected,
+        "measured_mass_g": round(measured_mass, 4) if declared_g else None,
+        "declared_over_measured_ratio": round(plating_ratio, 2) if plating_ratio else None,
         "sanity_mass_cap_g": round(mass_cap_g, 4),
         "used_card_fallback_views": [],
         "warnings": warnings,

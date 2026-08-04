@@ -101,9 +101,14 @@ def refine_jewel_mask(
             error_severity="soft",
             suggested_action="retake_photo",
         )
-    # 둘 다 유효하면 더 작은 쪽 — 배경·카드 과포함을 피한다
-    valid.sort(key=lambda c: c[2])
-    mode, mask, frac = valid[0]
+    # **beside_card 를 우선**한다. §4 프로토콜이 "카드 옆에 나란히"를 요구하고
+    # 촬영 가이드도 그렇게 안내한다.
+    #
+    # 이전에는 "더 작은 쪽"을 골랐는데, 신용카드 자체의 인쇄(원·로고)가 Otsu 에
+    # 전경으로 잡혀 on_card 후보가 더 작게 나오는 일이 흔했다.
+    # 실측: 카드 내부 74.8×33.7mm 를 물체로 잡아 0.05g 짜리가 5.27g 으로 나왔다.
+    by_mode = {c[0]: c for c in valid}
+    mode, mask, frac = by_mode.get("beside_card") or min(valid, key=lambda c: c[2])
 
     # 카드 근처 최대 연결성분만 — 그림자·반사 조각 제거
     n, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)

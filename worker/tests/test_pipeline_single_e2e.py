@@ -201,3 +201,39 @@ def test_plated_without_label_still_refuses(single_settings: Settings) -> None:
     out = _run(single_settings, metal="gold", purity="24k", product_k="plated")
     assert out["meta"]["sanity"]["mass_source"] == "measured_volume"
     assert out["meta"]["sanity"]["suppress_mass_display"] is True
+
+
+def test_declared_far_below_measured_flags_plating(single_settings: Settings) -> None:
+    """
+    표기값과 측정 부피를 대조하면 **도금 여부를 자동 판정**할 수 있다.
+    순금이면 두 값이 비슷해야 하는데, 측정이 몇 배나 크면 몸체가 금이 아니다.
+
+    실측 계기: "FINE GOLD 0.05g" 각인 바를 goldbar 로 재면 6.74g.
+    0.05g 을 그 면적에 펴면 마이크로미터 두께 = 도금.
+    """
+    out = _run(
+        single_settings,
+        metal="gold",
+        purity="24k",
+        product_k="goldbar",
+        reference_thickness_mm=1.0,
+        declared_gold_g=0.05,
+    )
+    sanity = out["meta"]["sanity"]
+    assert sanity["plating_detected"] is True
+    assert sanity["declared_over_measured_ratio"] > 3.0
+    assert out["mass_est_g"] == pytest.approx(0.05)
+    assert any("도금" in w for w in sanity["warnings"])
+
+
+def test_declared_matching_measured_is_not_flagged(single_settings: Settings) -> None:
+    """표기와 측정이 비슷하면 도금이 아니다 — 경고를 남발하면 안 된다."""
+    baseline = _run(single_settings, metal="gold", purity="18k", product_k="ring")
+    out = _run(
+        single_settings,
+        metal="gold",
+        purity="18k",
+        product_k="ring",
+        declared_gold_g=baseline["mass_est_g"],
+    )
+    assert out["meta"]["sanity"]["plating_detected"] is False

@@ -45,10 +45,10 @@ const PURITY_BY_METAL: Record<string, { value: string; label: string }[]> = {
 /** 형태별 촬영 주의 — API `product_k` 와 동일 키 (`worker` constants·스펙 §4·§7 정합) */
 const PRODUCT_SHOOTING_TIPS: Record<string, { title: string; items: string[] }> = {
   plated: {
-    title: '도금 · 금박 · 기념품',
+    title: '순금 봉입 · 금박 · 도금',
     items: [
-      '이런 제품은 **사진으로 금 무게를 잴 수 없습니다.** 몸체는 수지·황동이고 금은 마이크로미터 두께 막이라, 크기를 아무리 정확히 재도 금 함량과 무관합니다.',
-      '예: "순금 0.005g" 기념 골드바 → 금 0.005g 을 펴면 두께가 **0.26μm**(금박)입니다. 몸체를 순금으로 치면 실제와 수백 배 차이가 납니다.',
+      '따로 제련한 **순금 박·시트를 아크릴·수지에 봉입**한 제품, 금박, 도금이 여기 해당합니다. 금 자체는 진짜여도 **몸체 부피와 금 함량이 무관**해 사진으로는 잴 수 없습니다.',
+      '예: "순금 0.05g" 봉입 카드 → 그 금을 카드 면적에 펴면 두께가 **2.9μm** 입니다. 몸체를 순금으로 치면 실제와 100배 넘게 차이가 납니다.',
       '실제 함유량은 **제품 표기**를 따라 주세요. 여기서는 실측 치수만 보여 드립니다.',
     ],
   },
@@ -317,7 +317,7 @@ export function HomePage() {
                 <option value="pendant">펜던트</option>
                 <option value="earring">귀걸이</option>
                 <option value="goldbar">골드바 · 골드카드 (순금)</option>
-                <option value="plated">도금 · 금박 · 기념품</option>
+                <option value="plated">순금 봉입 · 금박 · 도금 (몸체가 금이 아닌 제품)</option>
                 <option value="other">기타</option>
               </select>
             </div>
@@ -327,7 +327,7 @@ export function HomePage() {
             <div className="notice notice--tips" style={{ marginBottom: '1rem' }}>
               <p className="notice__title">이 제품은 무게를 계산하지 않습니다</p>
               <p className="text-small" style={{ marginTop: 0 }}>
-                도금·금박 제품은 <strong>부피와 금 함량이 무관</strong>합니다. 사진으로는 잴 수
+                이런 제품은 <strong>몸체 부피와 금 함량이 무관</strong>합니다. 사진으로는 잴 수
                 없으니, 제품에 인쇄된 <strong>순금 함유량</strong>을 넣어 주시면 그 값으로
                 시세 견적을 계산해 드립니다.
               </p>

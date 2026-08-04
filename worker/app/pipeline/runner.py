@@ -51,10 +51,11 @@ log = logging.getLogger(__name__)
 
 SINGLE_VIEW_KEY = "front"
 
-# 측정 무게 / 표기 무게 가 이 배수를 넘으면 몸체가 순금이 아니다 = 도금·금박.
+# 측정 무게 / 표기 무게 가 이 배수를 넘으면 **몸체 전체가 순금은 아니다**
+# (봉입형·금박·도금 — 금 자체는 따로 제련한 진짜 999 여도 몸체가 아크릴·수지).
 # 순금이라면 두 값이 비슷해야 하고, 우리 부피 오차(§15.1 σ≈0.5)를 감안해도
 # 3배를 넘기 어렵다.
-PLATING_RATIO_THRESHOLD = 3.0
+SOLID_GOLD_RATIO_THRESHOLD = 3.0
 
 
 def _sanity_mass_cap_g(product_k: str, settings: Settings) -> float:
@@ -342,7 +343,7 @@ def _run_single(
     mass_cap_g = _sanity_mass_cap_g(inp.product_k, settings)
     implausible_mass = mass > mass_cap_g
 
-    # 도금·금박은 몸체 부피와 금 함량이 무관하다(§6.2). 숫자를 내면 거짓말이 된다.
+    # 몸체 전체가 금이 아닌 제품(봉입·금박·도금)은 부피와 금 함량이 무관하다(§6.2).
     volume_unmeasurable = inp.product_k.lower() in VOLUME_UNMEASURABLE_PRODUCTS
 
     # 다만 이런 제품은 함유량이 **제품에 인쇄돼 있다**("순금 0.005g").
@@ -350,17 +351,17 @@ def _run_single(
     # 측정값이 아니라는 사실은 mass_source 로 명시한다.
     declared_g = inp.declared_gold_g if (inp.declared_gold_g or 0) > 0 else None
     measured_mass = mass
-    plating_detected = False
-    plating_ratio: float | None = None
+    body_not_solid_gold = False
+    declared_ratio: float | None = None
 
     if declared_g:
-        # 표기값이 있으면 **측정 부피와 대조**해 도금 여부를 판정할 수 있다.
+        # 표기값이 있으면 **측정 부피와 대조**해 몸체가 순금인지 판정할 수 있다.
         # 속이 꽉 찬 순금이라면 두 값이 비슷해야 한다. 측정이 표기보다 몇 배나
-        # 크면 몸체가 금이 아니라는 뜻 — 도금·금박이다.
+        # 크면 몸체 전체가 금은 아니라는 뜻 — 봉입형·금박·도금이다.
         # 실측: "FINE GOLD 0.05g" 각인 바를 goldbar 로 재면 1.7g 이 나온다.
-        #       0.05g 을 그 면적(≈900mm²)에 펴면 두께 2.9μm = 도금.
-        plating_ratio = measured_mass / float(declared_g) if declared_g > 0 else None
-        plating_detected = plating_ratio is not None and plating_ratio > PLATING_RATIO_THRESHOLD
+        #       0.05g 을 그 면적에 펴면 2.9μm — 따로 제련한 순금 박을 봉입한 제품.
+        declared_ratio = measured_mass / float(declared_g) if declared_g > 0 else None
+        body_not_solid_gold = declared_ratio is not None and declared_ratio > SOLID_GOLD_RATIO_THRESHOLD
         mass = float(declared_g)
         volume_unmeasurable = False
         mass_source = "declared_label"
@@ -441,19 +442,19 @@ def _run_single(
             f"입력하신 제품 표기 {declared_g:g} g 을 그대로 사용했습니다. "
             "아래 실측 치수는 제품 확인용 참고값입니다.",
         )
-        if plating_detected and plating_ratio:
+        if body_not_solid_gold and declared_ratio:
             warnings.insert(
                 1,
-                f"사진에서 잰 부피대로면 순금 {measured_mass:.2f} g 이 나와야 하는데 "
-                f"표기는 {declared_g:g} g 입니다(약 {plating_ratio:.0f}배 차이). "
-                "몸체가 순금이 아닌 **도금·금박 제품**으로 보입니다. "
-                "이런 제품은 크기로 금 함량을 알 수 없어 표기값을 쓰는 것이 맞습니다.",
+                f"사진에서 잰 부피가 전부 순금이라면 {measured_mass:.2f} g 이어야 하는데 "
+                f"표기는 {declared_g:g} g 입니다(약 {declared_ratio:.0f}배 차이). "
+                "제품 몸체 전체가 순금은 아닌 것으로 보입니다 — 따로 제련한 순금 박·시트를 아크릴·수지에 봉입했거나 금박·도금인 경우입니다. "
+                "금 자체는 표기대로여도 몸체 크기로는 함량을 알 수 없으므로 표기값을 쓰는 것이 맞습니다.",
             )
     if volume_unmeasurable:
         warnings.insert(
             0,
-            "도금·금박 제품은 **부피로 금 함량을 알 수 없습니다.** 몸체는 수지·황동이고 "
-            "금은 마이크로미터 두께 막이라, 크기를 아무리 정확히 재도 금 무게와 무관합니다. "
+            "이 제품은 **부피로 금 함량을 알 수 없습니다.** 따로 제련한 순금 박·시트를 "
+            "아크릴·수지에 봉입했거나 금박·도금이면 몸체 크기와 금 무게가 무관합니다. "
             "실제 함유량은 제품 표기(예: 순금 0.005g)를 따라 주세요. "
             "아래 실측 치수는 참고용입니다.",
         )
@@ -463,9 +464,9 @@ def _run_single(
         "implausible_mass": implausible_mass,
         "volume_unmeasurable": volume_unmeasurable,
         "mass_source": mass_source,
-        "plating_detected": plating_detected,
+        "body_not_solid_gold": body_not_solid_gold,
         "measured_mass_g": round(measured_mass, 4) if declared_g else None,
-        "declared_over_measured_ratio": round(plating_ratio, 2) if plating_ratio else None,
+        "measured_over_declared_ratio": round(declared_ratio, 2) if declared_ratio else None,
         "sanity_mass_cap_g": round(mass_cap_g, 4),
         "used_card_fallback_views": [],
         "warnings": warnings,

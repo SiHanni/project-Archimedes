@@ -145,7 +145,7 @@ def test_require_anchor_rejects_when_card_missing(monkeypatch: pytest.MonkeyPatc
 
 def test_plated_products_refuse_to_report_mass(single_settings: Settings) -> None:
     """
-    도금·금박은 몸체 부피와 금 함량이 무관하다(§6.2).
+    몸체 전체가 금이 아닌 제품은 부피와 금 함량이 무관하다(§6.2).
 
     실측 계기: "순금 0.005g" 기념 골드바. 0.005g/19.32 = 0.259mm³ 를
     53×19mm 에 펴면 0.26μm — 금박 두께다. 몸체(수지)를 순금으로 치면
@@ -165,7 +165,7 @@ def test_plated_products_refuse_to_report_mass(single_settings: Settings) -> Non
 
 
 def test_solid_products_still_report_mass(single_settings: Settings) -> None:
-    """도금 억제가 일반 제품까지 막아 버리면 안 된다."""
+    """억제가 일반 제품까지 막아 버리면 안 된다."""
     out = _run(single_settings, metal="gold", purity="24k", product_k="ring")
     assert out["meta"]["sanity"]["volume_unmeasurable"] is False
     assert out["mass_range"] is not None
@@ -173,7 +173,7 @@ def test_solid_products_still_report_mass(single_settings: Settings) -> None:
 
 def test_plated_with_declared_label_reports_that_weight(single_settings: Settings) -> None:
     """
-    도금·금박은 부피로 못 재지만 함유량이 **제품에 인쇄돼 있다**.
+    몸체가 금이 아닌 제품은 부피로 못 재지만 함유량이 **각인돼 있다**.
     표기값을 받으면 그걸 쓰고, 측정값이 아님을 출처로 밝힌다.
     """
     out = _run(
@@ -203,13 +203,13 @@ def test_plated_without_label_still_refuses(single_settings: Settings) -> None:
     assert out["meta"]["sanity"]["suppress_mass_display"] is True
 
 
-def test_declared_far_below_measured_flags_plating(single_settings: Settings) -> None:
+def test_declared_far_below_measured_flags_non_solid_body(single_settings: Settings) -> None:
     """
-    표기값과 측정 부피를 대조하면 **도금 여부를 자동 판정**할 수 있다.
+    표기값과 측정 부피를 대조하면 **몸체가 순금인지 자동 판정**할 수 있다.
     순금이면 두 값이 비슷해야 하는데, 측정이 몇 배나 크면 몸체가 금이 아니다.
 
     실측 계기: "FINE GOLD 0.05g" 각인 바를 goldbar 로 재면 6.74g.
-    0.05g 을 그 면적에 펴면 마이크로미터 두께 = 도금.
+    0.05g 을 그 면적에 펴면 2.9μm — 따로 제련한 순금 박을 봉입한 제품.
     """
     out = _run(
         single_settings,
@@ -220,14 +220,14 @@ def test_declared_far_below_measured_flags_plating(single_settings: Settings) ->
         declared_gold_g=0.05,
     )
     sanity = out["meta"]["sanity"]
-    assert sanity["plating_detected"] is True
-    assert sanity["declared_over_measured_ratio"] > 3.0
+    assert sanity["body_not_solid_gold"] is True
+    assert sanity["measured_over_declared_ratio"] > 3.0
     assert out["mass_est_g"] == pytest.approx(0.05)
-    assert any("도금" in w for w in sanity["warnings"])
+    assert any("몸체 전체가 순금은 아닌" in w for w in sanity["warnings"])
 
 
 def test_declared_matching_measured_is_not_flagged(single_settings: Settings) -> None:
-    """표기와 측정이 비슷하면 도금이 아니다 — 경고를 남발하면 안 된다."""
+    """표기와 측정이 비슷하면 속이 꽉 찬 순금이다 — 경고를 남발하면 안 된다."""
     baseline = _run(single_settings, metal="gold", purity="18k", product_k="ring")
     out = _run(
         single_settings,
@@ -236,4 +236,4 @@ def test_declared_matching_measured_is_not_flagged(single_settings: Settings) ->
         product_k="ring",
         declared_gold_g=baseline["mass_est_g"],
     )
-    assert out["meta"]["sanity"]["plating_detected"] is False
+    assert out["meta"]["sanity"]["body_not_solid_gold"] is False

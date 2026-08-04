@@ -92,7 +92,11 @@ def bytes_to_bgr(image_bytes: bytes, orientation: int | None = None):
     import numpy as np
 
     arr = np.frombuffer(image_bytes, dtype=np.uint8)
-    bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    # ⚠️ cv2.imdecode 는 **기본적으로 EXIF orientation 을 이미 적용한다.**
+    # 그대로 두고 apply_exif_orientation 을 또 부르면 두 번 회전한다
+    # (실측: orientation=6 사진이 90도 틀어진 채 파이프라인에 들어갔다).
+    # 회전을 우리 코드에서 명시적으로 다루기 위해 디코드 단계에서는 끈다.
+    bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR | cv2.IMREAD_IGNORE_ORIENTATION)
     if bgr is None:
         raise PipelineError("ERR_DECODE", "Could not decode image", retry_step=None)
     if orientation is None:

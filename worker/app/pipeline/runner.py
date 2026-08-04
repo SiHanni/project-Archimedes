@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import logging
 import statistics
 from typing import Any
 
@@ -27,12 +28,15 @@ from app.pipeline.camera import intrinsics_from_exif
 from app.pipeline.card import CardGeometry, compute_card_geometry, try_compute_card_geometry
 from app.pipeline.exceptions import PipelineError
 from app.pipeline.geometry_g1 import jewel_bbox_uv_mm
+from app.pipeline.height_segment import segment_by_height
 from app.pipeline.ingest import bytes_to_bgr, collect_exif
 from app.pipeline.jewel_mask import refine_jewel_mask
 from app.pipeline.quality_gate import check_image_quality
 from app.pipeline.reconstruct import reconstruct_from_depth
 from app.pipeline.scale_fusion import fuse_scale
 from app.pipeline.segment import build_jewel_mask
+
+log = logging.getLogger(__name__)
 
 SINGLE_VIEW_KEY = "front"
 
@@ -238,18 +242,39 @@ def _run_single(
     # 카드는 v2 에서 **선택적 앵커** — 없으면 깊이 단독 경로로 간다
     card = try_compute_card_geometry(bgr, SINGLE_VIEW_KEY, settings)
 
-    detector = get_detector(settings)
-    box, det_meta = _select_jewelry_box(detector.detect(bgr), card)
-    det_meta["backend"] = detector.name
-
-    segmenter = get_segmenter(settings)
-    seg = segmenter.segment(bgr, box)
-    mask, mask_meta = refine_jewel_mask(seg.mask, card, SINGLE_VIEW_KEY)
-    mask_meta["backend"] = segmenter.name
-
     depth_est = get_depth_estimator(settings)
     dmap = depth_est.estimate(bgr)
     fusion = fuse_scale(dmap, K, card, require_anchor=settings.require_anchor)
+
+    # 세그멘테이션: **높이 우선**.
+    # 실사용 사진은 책상 위라 프레임 절반이 키보드·상자다. 밝기·범용 배경제거는
+    # 그걸 전부 전경으로 잡는다(실측: 마스크 24.5%, 404×252mm, 10.6kg).
+    # 바닥 평면은 이미 정확히 알고 있으므로(홀드아웃 RMSE 0.6mm), 카드 근처에서
+    # **평면 위로 솟은 것**을 물체로 본다. 색·조명·배경 무늬와 무관하다.
+    det_meta: dict[str, Any] = {"backend": "skipped_height_segment"}
+    mask = None
+    mask_meta: dict[str, Any] = {}
+    # 깊이 모델이 스스로 퇴화(상수 출력)라고 선언하면 높이 신호가 없다.
+    # 그때 억지로 높이 세그를 돌리면 원근 때문에 화면 가장자리가 "솟은 것"으로
+    # 잡힌다 — 실제 물체가 아니다.
+    depth_usable = not dmap.meta.get("degenerate")
+    if fusion.support_plane is not None and depth_usable:
+        try:
+            mask, mask_meta = segment_by_height(
+                fusion.depth_mm, fusion.support_plane, K, card
+            )
+        except PipelineError as e:
+            log.info("height segmentation failed (%s), falling back to appearance", e.code)
+
+    if mask is None:
+        # 앵커가 없거나 높이 세그가 실패한 경우에만 외형 기반으로 내려간다
+        detector = get_detector(settings)
+        box, det_meta = _select_jewelry_box(detector.detect(bgr), card)
+        det_meta["backend"] = detector.name
+        segmenter = get_segmenter(settings)
+        seg = segmenter.segment(bgr, box)
+        mask, mask_meta = refine_jewel_mask(seg.mask, card, SINGLE_VIEW_KEY)
+        mask_meta["backend"] = segmenter.name
 
     rec = reconstruct_from_depth(
         mask,

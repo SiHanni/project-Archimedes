@@ -44,6 +44,14 @@ const PURITY_BY_METAL: Record<string, { value: string; label: string }[]> = {
 
 /** 형태별 촬영 주의 — API `product_k` 와 동일 키 (`worker` constants·스펙 §4·§7 정합) */
 const PRODUCT_SHOOTING_TIPS: Record<string, { title: string; items: string[] }> = {
+  plated: {
+    title: '도금 · 금박 · 기념품',
+    items: [
+      '이런 제품은 **사진으로 금 무게를 잴 수 없습니다.** 몸체는 수지·황동이고 금은 마이크로미터 두께 막이라, 크기를 아무리 정확히 재도 금 함량과 무관합니다.',
+      '예: "순금 0.005g" 기념 골드바 → 금 0.005g 을 펴면 두께가 **0.26μm**(금박)입니다. 몸체를 순금으로 치면 실제와 수백 배 차이가 납니다.',
+      '실제 함유량은 **제품 표기**를 따라 주세요. 여기서는 실측 치수만 보여 드립니다.',
+    ],
+  },
   goldbar: {
     title: '골드바 · 골드카드',
     items: [
@@ -189,7 +197,9 @@ export function HomePage() {
   };
 
   /** worker `constants.FLAT_PRODUCTS` — 두께가 깊이 노이즈보다 얇아 사진으로 못 재는 제품 */
-  const isFlatProduct = product === 'goldbar';
+  const isFlatProduct = product === 'goldbar' || product === 'plated';
+  /** worker `constants.VOLUME_UNMEASURABLE_PRODUCTS` — 부피로 금 함량을 알 수 없는 제품 */
+  const isPlated = product === 'plated';
 
   const CLIENT_ABSURD_MASS_G = 350;
   const tier = job?.result?.confidence_tier;
@@ -302,13 +312,24 @@ export function HomePage() {
                 <option value="bracelet">팔찌</option>
                 <option value="pendant">펜던트</option>
                 <option value="earring">귀걸이</option>
-                <option value="goldbar">골드바 · 골드카드</option>
+                <option value="goldbar">골드바 · 골드카드 (순금)</option>
+                <option value="plated">도금 · 금박 · 기념품</option>
                 <option value="other">기타</option>
               </select>
             </div>
           </div>
 
-          {isFlatProduct ? (
+          {isPlated ? (
+            <div className="notice notice--tips" style={{ marginBottom: '1rem' }}>
+              <p className="notice__title">이 제품은 무게를 계산하지 않습니다</p>
+              <p className="text-small" style={{ marginTop: 0 }}>
+                도금·금박 제품은 <strong>부피와 금 함량이 무관</strong>합니다. 크기는 정확히
+                재어 드리지만 금 무게는 <strong>제품 표기</strong>를 따라 주세요.
+              </p>
+            </div>
+          ) : null}
+
+          {isFlatProduct && !isPlated ? (
             <div className="notice notice--slate" style={{ marginBottom: '1rem' }}>
               <p className="notice__title">두께를 입력해 주세요</p>
               <p className="text-small" style={{ marginTop: 0 }}>

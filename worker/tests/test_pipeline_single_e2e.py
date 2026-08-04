@@ -141,3 +141,31 @@ def test_require_anchor_rejects_when_card_missing(monkeypatch: pytest.MonkeyPatc
     with pytest.raises(PipelineError) as ei:
         run_pipeline("t-noanchor", inp, {"front": buf.tobytes()}, settings)
     assert ei.value.code in ("ERR_SCALE_UNRESOLVED", "ERR_CARD_NOT_FOUND")
+
+
+def test_plated_products_refuse_to_report_mass(single_settings: Settings) -> None:
+    """
+    도금·금박은 몸체 부피와 금 함량이 무관하다(§6.2).
+
+    실측 계기: "순금 0.005g" 기념 골드바. 0.005g/19.32 = 0.259mm³ 를
+    53×19mm 에 펴면 0.26μm — 금박 두께다. 몸체(수지)를 순금으로 치면
+    4.06g 이 나와 실제와 800배 차이. 숫자를 내면 거짓말이 된다.
+    """
+    out = _run(single_settings, metal="gold", purity="24k", product_k="plated")
+
+    sanity = out["meta"]["sanity"]
+    assert sanity["volume_unmeasurable"] is True
+    assert sanity["suppress_mass_display"] is True
+    assert out["mass_range"] is None
+    assert out["confidence_tier"] == "low"
+
+    warning = sanity["warnings"][0]
+    assert "부피로 금 함량을 알 수 없" in warning
+    assert "제품 표기" in warning
+
+
+def test_solid_products_still_report_mass(single_settings: Settings) -> None:
+    """도금 억제가 일반 제품까지 막아 버리면 안 된다."""
+    out = _run(single_settings, metal="gold", purity="24k", product_k="ring")
+    assert out["meta"]["sanity"]["volume_unmeasurable"] is False
+    assert out["mass_range"] is not None

@@ -20,6 +20,7 @@ from app.constants import (
     FLAT_PRODUCTS,
     SANITY_MAX_MASS_G_BY_PRODUCT,
     VIEW_ORDER,
+    VOLUME_UNMEASURABLE_PRODUCTS,
     VOXEL_GRID_N,
 )
 from app.models.schemas import JobInputRecord, JobResult, MassRange
@@ -336,6 +337,9 @@ def _run_single(
     mass_cap_g = _sanity_mass_cap_g(inp.product_k, settings)
     implausible_mass = mass > mass_cap_g
 
+    # 도금·금박은 몸체 부피와 금 함량이 무관하다(§6.2). 숫자를 내면 거짓말이 된다.
+    volume_unmeasurable = inp.product_k.lower() in VOLUME_UNMEASURABLE_PRODUCTS
+
     # ── 신뢰도 입력 매핑 ──
     scale_tight = fusion.anchor_used and not fusion.ill_conditioned
     thickness_assumed = rec.thickness_clamp is not None
@@ -348,7 +352,7 @@ def _run_single(
     cstate = conf_mod.ConfidenceState(
         multires_penalty=depth_penalty,
         scale_tight=scale_tight,
-        quality_ok=not implausible_mass,
+        quality_ok=not implausible_mass and not volume_unmeasurable,
         precision_boost=K.is_reliable and scale_tight,
         coarse_volume_model=weak_model or thickness_assumed,
     )
@@ -399,9 +403,19 @@ def _run_single(
             f"추정 무게가 비현실적으로 큽니다(상한 {mass_cap_g:.0f} g 초과). 촬영을 다시 확인해 주세요."
         )
 
+    if volume_unmeasurable:
+        warnings.insert(
+            0,
+            "도금·금박 제품은 **부피로 금 함량을 알 수 없습니다.** 몸체는 수지·황동이고 "
+            "금은 마이크로미터 두께 막이라, 크기를 아무리 정확히 재도 금 무게와 무관합니다. "
+            "실제 함유량은 제품 표기(예: 순금 0.005g)를 따라 주세요. "
+            "아래 실측 치수는 참고용입니다.",
+        )
+
     sanity_meta: dict[str, Any] = {
-        "suppress_mass_display": implausible_mass,
+        "suppress_mass_display": implausible_mass or volume_unmeasurable,
         "implausible_mass": implausible_mass,
+        "volume_unmeasurable": volume_unmeasurable,
         "sanity_mass_cap_g": round(mass_cap_g, 4),
         "used_card_fallback_views": [],
         "warnings": warnings,
@@ -436,7 +450,7 @@ def _run_single(
         confidence_pct=round(pct, 2),
         mass_range=(
             None
-            if implausible_mass
+            if implausible_mass or volume_unmeasurable
             else MassRange(min_g=round(mn, 4), estimate_g=round(est, 4), max_g=round(mx, 4))
         ),
         meta={

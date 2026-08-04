@@ -79,12 +79,22 @@ HOLLOW_ALPHA_BETA: dict[str, tuple[float, float]] = {
     "earring": (0.042, 0.0),
     # 골드바·골드카드: 꽉 찬 직육면체라 Visual Hull 과대가 거의 없다
     "goldbar": (0.92, 0.0),
+    "plated": (1.0, 0.0),
     "other": (0.42, 0.0),
 }
 
 # 두께가 깊이 노이즈(실측 카드 홀드아웃 RMSE ~0.6mm)보다 얇아
 # **높이로 찾을 수 없는** 제품. 세그는 외형 경로로, 두께는 입력값으로 받는다.
-FLAT_PRODUCTS: frozenset[str] = frozenset({"goldbar"})
+FLAT_PRODUCTS: frozenset[str] = frozenset({"goldbar", "plated"})
+
+# **부피로 금 함량을 알 수 없는** 제품 (project-concept §6.2 골드필·도금).
+#
+# 도금·금박 제품은 몸체가 수지·황동이고 금은 마이크로미터 막이다.
+# 부피×밀도 방식은 원리적으로 성립하지 않는다.
+# 실측: "순금 0.005g" 기념 골드바 → 0.005g/19.32 = 0.259mm³,
+#       53×19mm 면적에 펴면 0.26μm(금박 두께). 우리 추정 4.06g 과 800배 차이.
+# 숫자를 내는 대신 이유를 설명하고 억제한다.
+VOLUME_UNMEASURABLE_PRODUCTS: frozenset[str] = frozenset({"plated"})
 
 # 소비자 귀금속 기준 “이 이상이면 수치 표시 의미 없음” 상한 (g) — runner sanity 게이트
 SANITY_MAX_MASS_G_BY_PRODUCT: dict[str, float] = {
@@ -97,6 +107,7 @@ SANITY_MAX_MASS_G_BY_PRODUCT: dict[str, float] = {
     "earring": 16.0,
     # 소비자용 골드바는 보통 수 g~수십 g. 1kg 바는 이 서비스 대상이 아니다.
     "goldbar": 500.0,
+    "plated": 1e9,
     "other": 100.0,
 }
 
@@ -143,6 +154,8 @@ HOLLOW_ALPHA_BETA_DEPTH: dict[str, tuple[float, float]] = {
     # 골드바는 단면이 둥글지 않다 — 측정한 부피가 곧 금속 부피다.
     # 모서리 라운딩·각인 정도만 감안해 1.0 바로 아래.
     "goldbar": (0.98, 0.0),
+    # 형식상 자리만 — 이 카테고리는 무게를 내지 않는다
+    "plated": (1.0, 0.0),
     "other": (0.75, 0.0),
 }
 
@@ -159,6 +172,7 @@ MIN_THICKNESS_MM_BY_PRODUCT: dict[str, float] = {
     "earring": 0.6,
     # 1g 골드카드가 0.3mm 수준. 깊이로는 못 재고 입력값을 받아야 한다.
     "goldbar": 0.2,
+    "plated": 0.2,
     "other": 0.8,
 }
 MAX_THICKNESS_MM_BY_PRODUCT: dict[str, float] = {
@@ -169,6 +183,7 @@ MAX_THICKNESS_MM_BY_PRODUCT: dict[str, float] = {
     "pendant": 12.0,
     "earring": 10.0,
     "goldbar": 12.0,
+    "plated": 25.0,
     "other": 25.0,
 }
 
@@ -183,6 +198,7 @@ PRIOR_MASS_G: dict[str, tuple[float, float]] = {
     "earring": (0.8, 12.0),
     # 3.75g(한돈)·10g·37.5g(십돈) 등이 흔하다
     "goldbar": (0.5, 400.0),
+    "plated": (0.0001, 1000.0),
     "other": (1.0, 80.0),
 }
 

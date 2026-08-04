@@ -16,7 +16,12 @@ from typing import Any
 import numpy as np
 
 from app.config import Settings
-from app.constants import SANITY_MAX_MASS_G_BY_PRODUCT, VIEW_ORDER, VOXEL_GRID_N
+from app.constants import (
+    FLAT_PRODUCTS,
+    SANITY_MAX_MASS_G_BY_PRODUCT,
+    VIEW_ORDER,
+    VOXEL_GRID_N,
+)
 from app.models.schemas import JobInputRecord, JobResult, MassRange
 from app.pipeline import confidence as conf_mod
 from app.pipeline import hollow
@@ -25,7 +30,12 @@ from app.pipeline import voxel as voxel_mod
 from app.pipeline.backends import get_depth_estimator, get_detector, get_segmenter
 from app.pipeline.backends.types import Detection
 from app.pipeline.camera import intrinsics_from_exif
-from app.pipeline.card import CardGeometry, compute_card_geometry, try_compute_card_geometry
+from app.pipeline.card import (
+    CardGeometry,
+    card_edge_lengths_px,
+    compute_card_geometry,
+    try_compute_card_geometry,
+)
 from app.pipeline.exceptions import PipelineError
 from app.pipeline.geometry_g1 import jewel_bbox_uv_mm
 from app.pipeline.height_segment import segment_by_height
@@ -194,6 +204,21 @@ def _iou(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> float:
     return inter / float(area_a + area_b - inter)
 
 
+def _keep_near_card(dets: list[Detection], card: CardGeometry, spans: float = 1.2) -> list[Detection]:
+    """카드 중심에서 카드 긴 변의 `spans` 배 안에 있는 검출만 남긴다."""
+    cx = float(card.quad_px[:, 0].mean())
+    cy = float(card.quad_px[:, 1].mean())
+    long_px, _ = card_edge_lengths_px(card.quad_px)
+    limit = long_px * spans
+    near = []
+    for d in dets:
+        x0, y0, x1, y1 = d.box_xyxy
+        bx, by = 0.5 * (x0 + x1), 0.5 * (y0 + y1)
+        if np.hypot(bx - cx, by - cy) <= limit:
+            near.append(d)
+    return near or dets
+
+
 def _select_jewelry_box(
     dets: list[Detection], card: CardGeometry | None
 ) -> tuple[Detection | None, dict[str, Any]]:
@@ -258,7 +283,10 @@ def _run_single(
     # 그때 억지로 높이 세그를 돌리면 원근 때문에 화면 가장자리가 "솟은 것"으로
     # 잡힌다 — 실제 물체가 아니다.
     depth_usable = not dmap.meta.get("degenerate")
-    if fusion.support_plane is not None and depth_usable:
+    # 골드바처럼 두께가 깊이 노이즈(~0.6mm)보다 얇은 제품은 **높이로 찾을 수 없다.**
+    # 억지로 돌리면 못 찾거나 엉뚱한 걸 잡는다 — 외형 경로로 보낸다.
+    is_flat = inp.product_k.lower() in FLAT_PRODUCTS
+    if fusion.support_plane is not None and depth_usable and not is_flat:
         try:
             mask, mask_meta = segment_by_height(
                 fusion.depth_mm, fusion.support_plane, K, card
@@ -267,9 +295,13 @@ def _run_single(
             log.info("height segmentation failed (%s), falling back to appearance", e.code)
 
     if mask is None:
-        # 앵커가 없거나 높이 세그가 실패한 경우에만 외형 기반으로 내려간다
+        # 앵커가 없거나 높이 세그가 실패·부적합한 경우 외형 기반으로 내려간다
         detector = get_detector(settings)
-        box, det_meta = _select_jewelry_box(detector.detect(bgr), card)
+        dets = detector.detect(bgr)
+        if card is not None:
+            # 배경 잡동사니 제거 — §4 프로토콜상 물체는 **카드 옆**에 있다
+            dets = _keep_near_card(dets, card)
+        box, det_meta = _select_jewelry_box(dets, card)
         det_meta["backend"] = detector.name
         segmenter = get_segmenter(settings)
         seg = segmenter.segment(bgr, box)
@@ -283,6 +315,7 @@ def _run_single(
         inp.product_k,
         support_plane=fusion.support_plane,
         valid=dmap.valid_mask(),
+        thickness_override_mm=inp.reference_thickness_mm,
     )
 
     V_adj, alpha_k, beta_k = hollow.adjusted_volume_depth_mm3(rec.volume_mm3, inp.product_k)
@@ -336,6 +369,11 @@ def _run_single(
     if fusion.ill_conditioned:
         warnings.append(
             "카드가 카메라와 거의 평행해 거리 변화가 작습니다. 살짝 각도를 주고 찍어 주세요."
+        )
+    if inp.reference_thickness_mm:
+        warnings.append(
+            f"두께는 입력하신 {inp.reference_thickness_mm:g} mm 를 사용했습니다"
+            "(이 두께는 사진으로 잴 수 없어 입력값에 정확도가 좌우됩니다)."
         )
     if thickness_assumed:
         warnings.append(

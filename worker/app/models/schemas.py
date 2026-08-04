@@ -37,6 +37,9 @@ class JobInputRecord(BaseModel):
     purity: str = "18k"
     product_k: str = "ring"
     reference_weight_g: float | None = None
+    # 골드바처럼 **깊이로 못 재는 얇은 제품**의 두께(mm). 각인·규격에서 알 수 있다.
+    # 주면 관측값 대신 이 값을 쓴다.
+    reference_thickness_mm: float | None = None
     knows_weight: str | None = None  # "yes" | "no" | None — UX only
 
     @model_validator(mode="after")

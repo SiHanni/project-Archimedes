@@ -77,8 +77,14 @@ HOLLOW_ALPHA_BETA: dict[str, tuple[float, float]] = {
     "pendant": (0.38, 0.0),
     # 귀걸이: 실물 흔히 3–5g 전후인데 Hull이 수십~수백 g로 튀기 쉬움 → α·layout 둘 다 별도(실측·골든 필수)
     "earring": (0.042, 0.0),
+    # 골드바·골드카드: 꽉 찬 직육면체라 Visual Hull 과대가 거의 없다
+    "goldbar": (0.92, 0.0),
     "other": (0.42, 0.0),
 }
+
+# 두께가 깊이 노이즈(실측 카드 홀드아웃 RMSE ~0.6mm)보다 얇아
+# **높이로 찾을 수 없는** 제품. 세그는 외형 경로로, 두께는 입력값으로 받는다.
+FLAT_PRODUCTS: frozenset[str] = frozenset({"goldbar"})
 
 # 소비자 귀금속 기준 “이 이상이면 수치 표시 의미 없음” 상한 (g) — runner sanity 게이트
 SANITY_MAX_MASS_G_BY_PRODUCT: dict[str, float] = {
@@ -89,6 +95,8 @@ SANITY_MAX_MASS_G_BY_PRODUCT: dict[str, float] = {
     "pendant": 45.0,
     # 일반 데일리 귀걸이 상한을 넘기면 표시 숨김(무거운 드롭 등은 추후 서브타입으로 완화)
     "earring": 16.0,
+    # 소비자용 골드바는 보통 수 g~수십 g. 1kg 바는 이 서비스 대상이 아니다.
+    "goldbar": 500.0,
     "other": 100.0,
 }
 
@@ -132,6 +140,9 @@ HOLLOW_ALPHA_BETA_DEPTH: dict[str, tuple[float, float]] = {
     "bracelet": (0.70, 0.0),
     "pendant": (0.75, 0.0),
     "earring": (0.70, 0.0),
+    # 골드바는 단면이 둥글지 않다 — 측정한 부피가 곧 금속 부피다.
+    # 모서리 라운딩·각인 정도만 감안해 1.0 바로 아래.
+    "goldbar": (0.98, 0.0),
     "other": (0.75, 0.0),
 }
 
@@ -146,6 +157,8 @@ MIN_THICKNESS_MM_BY_PRODUCT: dict[str, float] = {
     "bracelet": 1.0,
     "pendant": 0.8,
     "earring": 0.6,
+    # 1g 골드카드가 0.3mm 수준. 깊이로는 못 재고 입력값을 받아야 한다.
+    "goldbar": 0.2,
     "other": 0.8,
 }
 MAX_THICKNESS_MM_BY_PRODUCT: dict[str, float] = {
@@ -155,6 +168,7 @@ MAX_THICKNESS_MM_BY_PRODUCT: dict[str, float] = {
     "bracelet": 14.0,
     "pendant": 12.0,
     "earring": 10.0,
+    "goldbar": 12.0,
     "other": 25.0,
 }
 
@@ -167,6 +181,8 @@ PRIOR_MASS_G: dict[str, tuple[float, float]] = {
     "pendant": (2.0, 25.0),
     # 대부분 3–5g대; 드롭·후크 무거운 편은 8–12g까지도 있음
     "earring": (0.8, 12.0),
+    # 3.75g(한돈)·10g·37.5g(십돈) 등이 흔하다
+    "goldbar": (0.5, 400.0),
     "other": (1.0, 80.0),
 }
 

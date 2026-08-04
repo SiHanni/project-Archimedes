@@ -201,8 +201,15 @@ def reconstruct_from_depth(
     product_k: str,
     support_plane: SupportPlane | None = None,
     valid: np.ndarray | None = None,
+    thickness_override_mm: float | None = None,
 ) -> Reconstruction:
-    """마스크 + 절대 깊이 (+ 바닥면) → 실치수와 2.5D 부피."""
+    """
+    마스크 + 절대 깊이 (+ 바닥면) → 실치수와 2.5D 부피.
+
+    `thickness_override_mm` 가 오면 관측 대신 그 값을 쓴다. 골드바처럼 두께가
+    깊이 노이즈보다 얇아 **원리적으로 관측 불가능한** 제품용이다.
+    이때 면적은 여전히 실측이므로 부피 정확도는 두께 입력값의 정확도를 따른다.
+    """
     rx, ry, z = masked_samples(mask, depth_mm, K, valid)
     if z.size < _MIN_POINTS:
         raise PipelineError(
@@ -218,10 +225,14 @@ def reconstruct_from_depth(
     length, width, h_vis = principal_extents_mm(pts)
     t_min, t_max = thickness_bounds(product_k)
 
-    if support_plane is not None:
+    if thickness_override_mm is not None and thickness_override_mm > 0:
+        volume = area * float(thickness_override_mm)
+        method = "measured_area_given_thickness"
+        extra: dict[str, Any] = {"thickness_source": "user_input"}
+    elif support_plane is not None:
         volume, dz = _height_field_volume(rx, ry, z, support_plane, K)
         method = "height_field"
-        extra: dict[str, Any] = {"height_p95_mm": round(float(np.percentile(dz, 95)), 4)}
+        extra = {"height_p95_mm": round(float(np.percentile(dz, 95)), 4)}
     else:
         volume = area * h_vis
         method = "prism_pca"
@@ -232,6 +243,24 @@ def reconstruct_from_depth(
     # 물리적 클램프 — 조용히 깎지 않고 플래그로 남긴다.
     # 두 경로 모두 여기 한 곳에서만 클램프해야 플래그가 빠지지 않는다.
     clamp: str | None = None
+    if thickness_override_mm is not None and thickness_override_mm > 0:
+        # 사용자가 준 두께는 클램프하지 않는다 — 우리 추정보다 신뢰도가 높다
+        return Reconstruction(
+            area_proj_mm2=area,
+            length_mm=length,
+            width_mm=width,
+            h_vis_mm=h_vis,
+            h_mean_mm=h_mean,
+            volume_mm3=volume,
+            n_points=int(z.size),
+            method=method,
+            thickness_clamp=None,
+            meta={
+                "thickness_bounds_mm": [t_min, t_max],
+                "mean_distance_mm": round(float(z.mean()), 2),
+                **extra,
+            },
+        )
     if h_mean < t_min:
         clamp = "min"
         volume = area * t_min

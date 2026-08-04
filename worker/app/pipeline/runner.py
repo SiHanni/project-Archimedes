@@ -29,7 +29,7 @@ from app.pipeline import jewel_layout as jewel_layout_mod
 from app.pipeline import voxel as voxel_mod
 from app.pipeline.backends import get_depth_estimator, get_detector, get_segmenter
 from app.pipeline.backends.types import Detection
-from app.pipeline.camera import intrinsics_from_exif
+from app.pipeline.camera import intrinsics_from_card, intrinsics_from_exif
 from app.pipeline.card import (
     CardGeometry,
     card_edge_lengths_px,
@@ -262,10 +262,18 @@ def _run_single(
     bgr = bytes_to_bgr(raw, exif.get("orientation"))
     check_image_quality(bgr, settings, SINGLE_VIEW_KEY)
     h, w = bgr.shape[:2]
-    K = intrinsics_from_exif(exif, w, h)
 
     # 카드는 v2 에서 **선택적 앵커** — 없으면 깊이 단독 경로로 간다
     card = try_compute_card_geometry(bgr, SINGLE_VIEW_KEY, settings)
+
+    # EXIF 에 초점거리가 없는 사진이 흔하다(실측: 도련님 사진 2장 모두 없음).
+    # 그때 1.15·max(W,H) 로 추측하면 최대 46% 틀리고, 그 오차가 두께 →
+    # 부피 → 무게로 그대로 간다. 카드가 있으면 **소실점으로 f 를 푼다.**
+    K = (
+        intrinsics_from_card(exif, card.quad_px, w, h)
+        if card is not None
+        else intrinsics_from_exif(exif, w, h)
+    )
 
     depth_est = get_depth_estimator(settings)
     dmap = depth_est.estimate(bgr)
@@ -289,7 +297,11 @@ def _run_single(
     if fusion.support_plane is not None and depth_usable and not is_flat:
         try:
             mask, mask_meta = segment_by_height(
-                fusion.depth_mm, fusion.support_plane, K, card
+                fusion.depth_mm,
+                fusion.support_plane,
+                K,
+                card,
+                depth_rmse_mm=fusion.depth_rmse_mm,
             )
         except PipelineError as e:
             log.info("height segmentation failed (%s), falling back to appearance", e.code)

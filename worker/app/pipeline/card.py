@@ -174,14 +174,32 @@ def detect_card_quad(bgr: np.ndarray, view: str) -> np.ndarray:
 
 
 def order_quad_points(pts: np.ndarray) -> np.ndarray:
-    """Order: top-left, top-right, bottom-right, bottom-left."""
-    s = pts.sum(axis=1)
-    diff = np.diff(pts, axis=1).flatten()
-    tl = pts[np.argmin(s)]
-    br = pts[np.argmax(s)]
-    tr = pts[np.argmin(diff)]
-    bl = pts[np.argmax(diff)]
-    return np.array([tl, tr, br, bl], dtype=np.float32)
+    """
+    TL, TR, BR, BL 순으로 정렬한다.
+
+    **중심각 기준 순환 정렬**을 쓴다. 이전 구현은 좌표합(x+y)·차(y−x)의
+    argmin/argmax 로 네 꼭짓점을 골랐는데, 카드가 45도 부근으로 기울면
+    **같은 점이 두 번 뽑혀** 쿼드가 붕괴한다.
+
+    실측(도련님 사진): 45도 기운 카드에서 4점 중 1점이 중복되어
+    한 변의 길이가 0 이 되고, 종횡비가 2.087(정답 1.586)로 나왔다.
+    그 결과 σ·소실점 초점거리·PnP 가 전부 어긋났다.
+    각도로 정렬하면 순환 순서가 보장돼 중복이 원천적으로 불가능하다.
+    """
+    p = np.asarray(pts, dtype=np.float64).reshape(4, 2)
+    center = p.mean(axis=0)
+    ang = np.arctan2(p[:, 1] - center[1], p[:, 0] - center[0])
+    p = p[np.argsort(ang)]
+
+    # 이미지 좌표(y 아래)에서 TL→TR→BR→BL 은 shoelace 가 양수인 방향이다
+    x, y = p[:, 0], p[:, 1]
+    if float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))) < 0:
+        p = p[::-1]
+
+    # 좌상단에 가장 가까운 점에서 시작하도록 순환 이동
+    start = int(np.argmin(p[:, 0] + p[:, 1]))
+    p = np.roll(p, -start, axis=0)
+    return p.astype(np.float32)
 
 
 def _fallback_quad_from_frame(shape: tuple[int, int, int] | tuple[int, int]) -> np.ndarray:

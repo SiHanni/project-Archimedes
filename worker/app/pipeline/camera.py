@@ -40,7 +40,7 @@ class Intrinsics:
 
     @property
     def is_reliable(self) -> bool:
-        """폴백 K 는 초점거리를 추측한 것이라 신뢰도 감점 대상이다."""
+        """폴백 K 만 추측이다. 카드 소실점 해는 사진에서 **푼** 값이라 신뢰한다."""
         return self.source != "fallback"
 
     def as_meta(self) -> dict[str, Any]:
@@ -95,6 +95,81 @@ def intrinsics_from_exif(
     # 이 값을 쓰면 절대 스케일을 K 에 의존해선 안 되고, 앵커(카드)로 잡아야 한다.
     f_px = 1.15 * float(max(width_px, height_px))
     return Intrinsics(f_px, f_px, cx, cy, "fallback")
+
+
+def focal_from_rectangle_quad(
+    quad_px, width_px: int, height_px: int, *, min_ratio: float = 0.25, max_ratio: float = 6.0
+) -> float | None:
+    """
+    **알려진 직사각형**(신용카드)의 소실점으로 초점거리를 푼다.
+
+    직사각형의 마주보는 변 두 쌍은 각각 소실점 v1, v2 를 만든다. 두 방향이
+    3D 에서 직교하므로 주점 c 에 대해
+
+        (v1 - c) · (v2 - c) = -f²
+
+    가 성립한다. 즉 **EXIF 가 없어도 사진 한 장에서 f 를 얻을 수 있다.**
+
+    왜 중요한가: 물체의 가로·세로 실측은 f 가 약분돼 f 오차에 둔감하지만
+    (크기 = 픽셀 × 카드실측 / 카드픽셀), **바닥면 위 높이는 f 에 비례**한다.
+    f 를 1.15·max(W,H) 로 추측하면 그 오차가 두께 → 부피 → 무게로 그대로 간다.
+
+    카드가 정면에 가까우면 소실점이 무한대로 가 수치가 불안정하다 → `None`.
+    """
+    import numpy as _np
+
+    q = _np.asarray(quad_px, dtype=_np.float64).reshape(4, 2)
+    cx, cy = width_px / 2.0, height_px / 2.0
+
+    def _line(a_pt, b_pt):
+        return _np.cross(_np.array([a_pt[0], a_pt[1], 1.0]), _np.array([b_pt[0], b_pt[1], 1.0]))
+
+    diag = float(_np.hypot(width_px, height_px))
+    # 소실점이 이 거리보다 멀면 두 변이 사실상 평행하다 = 그 축엔 원근이 없다.
+    # 수치적으로는 유한한 값이 나오지만 의미가 없어(실측 48억 px) f 가 폭주한다.
+    far_limit = 60.0 * diag
+
+    def _vanish(l1, l2):
+        v = _np.cross(l1, l2)
+        if abs(v[2]) < 1e-9:
+            return None
+        vp = _np.array([v[0] / v[2], v[1] / v[2]])
+        if not _np.all(_np.isfinite(vp)):
+            return None
+        if float(_np.hypot(vp[0] - cx, vp[1] - cy)) > far_limit:
+            return None
+        return vp
+
+    v1 = _vanish(_line(q[0], q[1]), _line(q[3], q[2]))
+    v2 = _vanish(_line(q[1], q[2]), _line(q[0], q[3]))
+    if v1 is None or v2 is None:
+        return None
+
+    f_sq = -float((v1[0] - cx) * (v2[0] - cx) + (v1[1] - cy) * (v2[1] - cy))
+    if not _np.isfinite(f_sq) or f_sq <= 0:
+        return None
+    f = float(_np.sqrt(f_sq))
+
+    # 소비자 폰의 물리적으로 말이 되는 범위 밖이면 신뢰하지 않는다
+    span = float(max(width_px, height_px))
+    if not (min_ratio * span <= f <= max_ratio * span):
+        return None
+    return f
+
+
+def intrinsics_from_card(
+    exif: dict[str, Any] | None, quad_px, width_px: int, height_px: int
+) -> Intrinsics:
+    """EXIF 우선, 없으면 **카드 소실점**으로 f 를 푼다. 그것도 안 되면 폴백."""
+    from_exif = intrinsics_from_exif(exif, width_px, height_px)
+    if from_exif.source != "fallback":
+        return from_exif
+
+    f = focal_from_rectangle_quad(quad_px, width_px, height_px)
+    if f is None:
+        return from_exif
+    cx, cy = _principal_point(width_px, height_px)
+    return Intrinsics(f, f, cx, cy, "card_vanishing_point")
 
 
 def pixel_rays(

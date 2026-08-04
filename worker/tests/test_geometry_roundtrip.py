@@ -17,7 +17,12 @@ import numpy as np
 import pytest
 
 from app.constants import ID1_HEIGHT_MM, ID1_WIDTH_MM, VIEW_ORDER
-from app.pipeline.card import CardGeometry, sigma_mm_per_px_from_quad
+from app.pipeline.card import (
+    CardGeometry,
+    card_edge_lengths_px,
+    order_quad_points,
+    sigma_mm_per_px_from_quad,
+)
 from app.pipeline.exceptions import PipelineError
 from app.pipeline.geometry_g1 import jewel_bbox_uv_mm
 from app.pipeline.geometry_project import sample_mask, world_mm_to_pixel_uv
@@ -271,3 +276,62 @@ def test_large_axis_mismatch_still_raises() -> None:
     with pytest.raises(PipelineError) as ei:
         slab_aabb_intervals_mm(bboxes)
     assert ei.value.code == "ERR_VOLUME"
+
+
+# ───────────────── 쿼드 정렬 (45도 회전) ─────────────────
+
+
+def test_order_quad_points_handles_rotated_card() -> None:
+    """
+    결함 회귀: 좌표합/차 argmin·argmax 방식은 카드가 45도 부근으로 기울면
+    **같은 점을 두 번** 골라 쿼드가 붕괴했다(한 변 길이 0, 종횡비 2.09).
+    실사용에서 "카드를 비스듬히" 안내가 이 버그를 정면으로 밟았다.
+    """
+    cx, cy, hw, hh = 500.0, 400.0, 200.0, 126.0
+    base = np.array([[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]])
+    for deg in (0, 15, 30, 44, 45, 46, 60, 89, 135):
+        a = np.deg2rad(deg)
+        R = np.array([[np.cos(a), -np.sin(a)], [np.sin(a), np.cos(a)]])
+        quad = (base @ R.T + [cx, cy]).astype(np.float32)
+        ordered = order_quad_points(quad)
+
+        assert ordered.shape == (4, 2)
+        # 중복 꼭짓점이 없어야 한다
+        uniq = {(round(float(x), 3), round(float(y), 3)) for x, y in ordered}
+        assert len(uniq) == 4, f"{deg}도에서 꼭짓점 중복"
+        # 네 변 모두 길이가 있어야 한다
+        for i in range(4):
+            seg = float(np.linalg.norm(ordered[(i + 1) % 4] - ordered[i]))
+            assert seg > 1.0, f"{deg}도에서 변 {i} 길이 {seg}"
+        # 종횡비가 보존돼야 한다
+        long_px, short_px = card_edge_lengths_px(ordered)
+        assert long_px / short_px == pytest.approx(hw / hh, rel=0.02), f"{deg}도"
+
+
+def test_focal_from_rotated_card_quad() -> None:
+    """쿼드가 정상 정렬되면 기울어진 카드에서 초점거리를 풀 수 있다."""
+    from app.pipeline.camera import Intrinsics, focal_from_rectangle_quad
+
+    K = Intrinsics(fx=3000.0, fy=3000.0, cx=1512.0, cy=2016.0, source="t")
+    hx, hy = ID1_WIDTH_MM / 2.0, ID1_HEIGHT_MM / 2.0
+    local = np.array([[-hx, -hy, 0.0], [hx, -hy, 0.0], [hx, hy, 0.0], [-hx, hy, 0.0]])
+    # 두 축 모두 기울여야 양쪽 변에 원근이 생긴다.
+    # 면내(z축) 회전만 주면 한 변 쌍이 평행하게 남아 소실점이 무한대다.
+    a = np.deg2rad(30.0)
+    Rx = np.array([[1, 0, 0], [0, np.cos(a), -np.sin(a)], [0, np.sin(a), np.cos(a)]])
+    b = np.deg2rad(25.0)
+    Ry = np.array([[np.cos(b), 0, np.sin(b)], [0, 1, 0], [-np.sin(b), 0, np.cos(b)]])
+    cam = local @ (Ry @ Rx).T + np.array([0.0, 0.0, 300.0])
+    px = np.stack([K.fx * cam[:, 0] / cam[:, 2] + K.cx, K.fy * cam[:, 1] / cam[:, 2] + K.cy], axis=1)
+
+    got = focal_from_rectangle_quad(order_quad_points(px.astype(np.float32)), 3024, 4032)
+    assert got is not None
+    assert got == pytest.approx(3000.0, rel=0.02)
+
+
+def test_focal_returns_none_when_card_is_fronto_parallel() -> None:
+    """정면 카드는 소실점이 무한대라 f 를 풀 수 없다 — 폭주 대신 None."""
+    from app.pipeline.camera import focal_from_rectangle_quad
+
+    quad = np.array([[800, 900], [2200, 900], [2200, 1783], [800, 1783]], dtype=np.float32)
+    assert focal_from_rectangle_quad(quad, 3024, 4032) is None

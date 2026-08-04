@@ -18,7 +18,7 @@ import cv2
 import numpy as np
 
 from app.constants import CARD_DILATE_PX, JEWEL_AREA_FRAC_MAX, JEWEL_AREA_FRAC_MIN
-from app.pipeline.card import CardGeometry
+from app.pipeline.card import CardGeometry, card_edge_lengths_px
 from app.pipeline.exceptions import PipelineError
 
 log = logging.getLogger(__name__)
@@ -47,13 +47,31 @@ def card_masks(card: CardGeometry, shape: tuple[int, int]) -> tuple[np.ndarray, 
     return dilated, inner
 
 
+def card_roi_mask(card: CardGeometry, shape: tuple[int, int], spans: float = 1.0) -> np.ndarray:
+    """카드 중심에서 카드 긴 변의 `spans` 배 안쪽 영역."""
+    h, w = shape[:2]
+    cx = float(card.quad_px[:, 0].mean())
+    cy = float(card.quad_px[:, 1].mean())
+    long_px, _ = card_edge_lengths_px(card.quad_px)
+    roi = np.zeros((h, w), dtype=np.uint8)
+    cv2.circle(roi, (round(cx), round(cy)), round(long_px * spans), 255, -1)
+    return roi
+
+
 def refine_jewel_mask(
     fg: np.ndarray,
     card: CardGeometry | None,
     view: str = "front",
+    *,
+    roi_card_spans: float = 1.0,
 ) -> tuple[np.ndarray, dict[str, object]]:
     """
     전경에서 귀금속 마스크를 뽑는다.
+
+    카드가 있으면 **카드 주변으로 먼저 자른다.** 실사용 사진은 책상 위라
+    프레임 절반이 키보드·모니터인데, 전경 마스크를 화면 전체에서 만들면
+    그것들이 그대로 후보가 된다(실측: 마스크 24.5%, 복원 404×252mm).
+    §4 프로토콜이 "카드 옆에 나란히"를 요구하므로 정당한 제약이다.
 
     Returns (mask, {"placement_mode": "no_card" | "beside_card" | "on_card"}).
     """
@@ -62,6 +80,9 @@ def refine_jewel_mask(
         frac = _area_frac(mask)
         _validate(frac, view, "no_card")
         return mask, {"placement_mode": "no_card", "area_frac": round(frac, 6)}
+
+    roi = card_roi_mask(card, fg.shape, roi_card_spans)
+    fg = cv2.bitwise_and(fg, roi)
 
     dilated, inner = card_masks(card, fg.shape)
 
@@ -83,8 +104,20 @@ def refine_jewel_mask(
     # 둘 다 유효하면 더 작은 쪽 — 배경·카드 과포함을 피한다
     valid.sort(key=lambda c: c[2])
     mode, mask, frac = valid[0]
+
+    # 카드 근처 최대 연결성분만 — 그림자·반사 조각 제거
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    if n > 1:
+        biggest = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+        mask = ((labels == biggest).astype(np.uint8)) * 255
+        frac = _area_frac(mask)
+
     log.info("jewel mask mode=%s frac=%.5f view=%s", mode, frac, view)
-    return mask, {"placement_mode": mode, "area_frac": round(frac, 6)}
+    return mask, {
+        "placement_mode": mode,
+        "area_frac": round(frac, 6),
+        "roi_card_spans": roi_card_spans,
+    }
 
 
 def _validate(frac: float, view: str, mode: str) -> None:

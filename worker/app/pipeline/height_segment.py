@@ -61,10 +61,17 @@ def segment_by_height(
     min_height_mm: float = DEFAULT_MIN_HEIGHT_MM,
     max_height_mm: float = DEFAULT_MAX_HEIGHT_MM,
     roi_card_spans: float = DEFAULT_ROI_CARD_SPANS,
+    depth_rmse_mm: float | None = None,
 ) -> tuple[np.ndarray, dict[str, Any]]:
     """
     Returns (mask, meta). 카드 근처에서 바닥 위로 솟은 **최대 연결성분**.
+
+    `depth_rmse_mm`(카드 홀드아웃 실측)이 주어지면 높이 임계를 그 3배 이상으로
+    올린다. 자기 노이즈보다 작은 높이차를 "물체"라고 주장하면 안 된다 —
+    실측에서 RMSE 9.7mm 인데 임계 2mm 를 쓰자 화면의 25% 가 물체로 잡혔다.
     """
+    if depth_rmse_mm is not None and depth_rmse_mm > 0:
+        min_height_mm = max(min_height_mm, 3.0 * float(depth_rmse_mm))
     h, w = depth_mm.shape[:2]
     height = height_above_plane_mm(depth_mm, plane, K)
 
@@ -114,6 +121,7 @@ def segment_by_height(
     log.info("height segment frac=%.5f median_height=%.2fmm", frac, med_h)
     return mask, {
         "backend": "depth_plane",
+        "min_height_mm": round(min_height_mm, 3),
         "area_frac": round(frac, 6),
         "median_height_mm": round(med_h, 3),
         "roi_card_spans": roi_card_spans,

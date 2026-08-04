@@ -20,6 +20,7 @@ export type CreateJobFormFields = {
   purity?: string;
   product_k?: string;
   reference_weight_g?: string;
+  reference_thickness_mm?: string;
   knows_weight?: string;
   capture_mode?: string;
 };

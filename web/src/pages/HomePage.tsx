@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import { getJob, isQuoteSuppressed, postJob, type JobDto } from '../api';
+import { CaptureGuide } from '../components/CaptureGuide';
 
 const VIEWS = ['front', 'top', 'left', 'right', 'back'] as const;
 const VIEW_LABEL: Record<(typeof VIEWS)[number], string> = {
@@ -43,6 +44,14 @@ const PURITY_BY_METAL: Record<string, { value: string; label: string }[]> = {
 
 /** 형태별 촬영 주의 — API `product_k` 와 동일 키 (`worker` constants·스펙 §4·§7 정합) */
 const PRODUCT_SHOOTING_TIPS: Record<string, { title: string; items: string[] }> = {
+  goldbar: {
+    title: '골드바 · 골드카드',
+    items: [
+      '**케이스·블리스터에서 꺼내** 주세요. 투명 케이스도 그대로 재어 버립니다.',
+      '두께는 사진으로 못 잽니다 — 각인이나 제품 규격의 **두께(mm)를 입력**해 주세요. 넓이는 사진에서 정확히 잽니다.',
+      '카드 바로 옆에 **평평하게** 놓고, 화면에 크게 나오도록 가까이 찍어 주세요.',
+    ],
+  },
   ring: {
     title: '반지',
     items: [
@@ -119,6 +128,7 @@ export function HomePage() {
   const [metal, setMetal] = useState('gold');
   const [purity, setPurity] = useState('18k');
   const [product, setProduct] = useState('ring');
+  const [thicknessMm, setThicknessMm] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [job, setJob] = useState<JobDto | null>(null);
@@ -164,6 +174,9 @@ export function HomePage() {
       fd.append('metal', metal);
       fd.append('purity', purity);
       fd.append('product_k', product);
+      if (isFlatProduct && thicknessMm.trim()) {
+        fd.append('reference_thickness_mm', thicknessMm.trim());
+      }
       if (knows === 'yes' && refWeight.trim()) fd.append('reference_weight_g', refWeight.trim());
       if (knows) fd.append('knows_weight', knows);
       const { id } = await postJob(fd);
@@ -174,6 +187,9 @@ export function HomePage() {
       setBusy(false);
     }
   };
+
+  /** worker `constants.FLAT_PRODUCTS` — 두께가 깊이 노이즈보다 얇아 사진으로 못 재는 제품 */
+  const isFlatProduct = product === 'goldbar';
 
   const CLIENT_ABSURD_MASS_G = 350;
   const tier = job?.result?.confidence_tier;
@@ -218,6 +234,7 @@ export function HomePage() {
       {step === 1 && (
         <section className="card">
           <h2 className="section-title">촬영 전 체크</h2>
+          <CaptureGuide />
           <ul className="check-list">
             <li>
               <strong>신용카드를 함께 찍어 주세요.</strong> 카드는 크기가 규격(85.6×54mm)으로
@@ -285,10 +302,37 @@ export function HomePage() {
                 <option value="bracelet">팔찌</option>
                 <option value="pendant">펜던트</option>
                 <option value="earring">귀걸이</option>
+                <option value="goldbar">골드바 · 골드카드</option>
                 <option value="other">기타</option>
               </select>
             </div>
           </div>
+
+          {isFlatProduct ? (
+            <div className="notice notice--slate" style={{ marginBottom: '1rem' }}>
+              <p className="notice__title">두께를 입력해 주세요</p>
+              <p className="text-small" style={{ marginTop: 0 }}>
+                골드바·골드카드는 두께가 <strong>0.3~0.5mm</strong> 수준이라
+                사진으로는 잴 수 없습니다(측정 오차보다 얇음). 각인·제품 규격에 적힌 값을
+                넣어 주시면 넓이는 사진에서 정확히 재서 무게를 계산합니다.
+              </p>
+              <div className="field" style={{ marginTop: '0.5rem' }}>
+                <label htmlFor="thickness">두께 (mm)</label>
+                <input
+                  id="thickness"
+                  type="number"
+                  step="0.01"
+                  min="0.05"
+                  placeholder="예: 0.4"
+                  value={thicknessMm}
+                  onChange={(e) => setThicknessMm(e.target.value)}
+                />
+              </div>
+              <p className="text-small" style={{ margin: '0.35rem 0 0' }}>
+                모르면 비워 두셔도 됩니다. 대신 제품 기준값으로 가정해 오차가 커집니다.
+              </p>
+            </div>
+          ) : null}
 
           {(() => {
             const tip = PRODUCT_SHOOTING_TIPS[product] ?? PRODUCT_SHOOTING_TIPS.other;
@@ -344,6 +388,8 @@ export function HomePage() {
               ? '휴대폰에서는 버튼을 누르면 카메라가 열립니다. 각 각도마다 1장씩 촬영하세요.'
               : '이미 찍어둔 사진이 있으면 각도별로 선택하세요.'}
           </p>
+
+          {shotMode === 'single' ? <CaptureGuide compact /> : null}
 
           <div style={{ display: 'grid', gap: '0.75rem', marginBottom: '1rem', marginTop: '0.75rem' }}>
             {shotMode === 'single' ? (

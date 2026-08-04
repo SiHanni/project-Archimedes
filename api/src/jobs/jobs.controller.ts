@@ -64,6 +64,7 @@ export class JobsController {
       purity: body.purity || '18k',
       product_k: body.product_k || 'ring',
       reference_weight_g: body.reference_weight_g,
+      reference_thickness_mm: body.reference_thickness_mm,
       knows_weight: body.knows_weight,
     });
   }

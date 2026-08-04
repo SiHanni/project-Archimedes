@@ -114,11 +114,14 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    let ref: number | null = null;
-    if (body.reference_weight_g != null && body.reference_weight_g !== '') {
-      const n = parseFloat(String(body.reference_weight_g));
-      ref = Number.isFinite(n) ? n : null;
-    }
+    const num = (v: string | undefined): number | null => {
+      if (v == null || v === '') return null;
+      const n = parseFloat(String(v));
+      return Number.isFinite(n) && n > 0 ? n : null;
+    };
+    const ref = num(body.reference_weight_g);
+    // 골드바처럼 사진으로 못 재는 두께 — worker 가 관측 대신 이 값을 쓴다
+    const refThickness = num(body.reference_thickness_mm);
     const input = {
       capture_mode: captureMode,
       image,
@@ -127,6 +130,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       purity: (body.purity || '18k').toLowerCase(),
       product_k: (body.product_k || 'ring').toLowerCase(),
       reference_weight_g: ref,
+      reference_thickness_mm: refThickness,
       knows_weight: body.knows_weight || null,
     };
     await this.pool.execute(

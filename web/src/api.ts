@@ -26,6 +26,9 @@ export type JobSanityMeta = {
   used_card_fallback_views?: string[];
   warnings?: string[];
   raw_mass_est_g?: number;
+  volume_unmeasurable?: boolean;
+  /** measured_volume | declared_label — 표기값 기반이면 그 사실을 UI 가 밝혀야 한다 */
+  mass_source?: string;
 };
 
 /** worker `runner` — soft/hard 등급과 재촬영 유도 */

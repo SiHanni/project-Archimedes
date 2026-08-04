@@ -137,6 +137,7 @@ export function HomePage() {
   const [purity, setPurity] = useState('18k');
   const [product, setProduct] = useState('ring');
   const [thicknessMm, setThicknessMm] = useState('');
+  const [declaredGoldG, setDeclaredGoldG] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [job, setJob] = useState<JobDto | null>(null);
@@ -182,8 +183,11 @@ export function HomePage() {
       fd.append('metal', metal);
       fd.append('purity', purity);
       fd.append('product_k', product);
-      if (isFlatProduct && thicknessMm.trim()) {
+      if (isFlatProduct && !isPlated && thicknessMm.trim()) {
         fd.append('reference_thickness_mm', thicknessMm.trim());
+      }
+      if (isPlated && declaredGoldG.trim()) {
+        fd.append('declared_gold_g', declaredGoldG.trim());
       }
       if (knows === 'yes' && refWeight.trim()) fd.append('reference_weight_g', refWeight.trim());
       if (knows) fd.append('knows_weight', knows);
@@ -323,8 +327,24 @@ export function HomePage() {
             <div className="notice notice--tips" style={{ marginBottom: '1rem' }}>
               <p className="notice__title">이 제품은 무게를 계산하지 않습니다</p>
               <p className="text-small" style={{ marginTop: 0 }}>
-                도금·금박 제품은 <strong>부피와 금 함량이 무관</strong>합니다. 크기는 정확히
-                재어 드리지만 금 무게는 <strong>제품 표기</strong>를 따라 주세요.
+                도금·금박 제품은 <strong>부피와 금 함량이 무관</strong>합니다. 사진으로는 잴 수
+                없으니, 제품에 인쇄된 <strong>순금 함유량</strong>을 넣어 주시면 그 값으로
+                시세 견적을 계산해 드립니다.
+              </p>
+              <div className="field" style={{ marginTop: '0.5rem' }}>
+                <label htmlFor="declared">제품 표기 순금 함유량 (g)</label>
+                <input
+                  id="declared"
+                  type="number"
+                  step="0.001"
+                  min="0.0001"
+                  placeholder="예: 0.005"
+                  value={declaredGoldG}
+                  onChange={(e) => setDeclaredGoldG(e.target.value)}
+                />
+              </div>
+              <p className="text-small" style={{ margin: '0.35rem 0 0' }}>
+                비워 두면 무게·견적 없이 실측 치수만 보여 드립니다.
               </p>
             </div>
           ) : null}
@@ -484,7 +504,7 @@ export function HomePage() {
                 </p>
               ) : (
                 <p>
-                  추정 무게:{' '}
+                  {sanity?.mass_source === 'declared_label' ? '표기 함유량: ' : '추정 무게: '}
                   <strong style={{ fontSize: '1.15rem', color: 'var(--gold-deep)' }}>{massG!.toFixed(3)} g</strong>
                 </p>
               )}

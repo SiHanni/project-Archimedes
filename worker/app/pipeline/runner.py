@@ -340,6 +340,17 @@ def _run_single(
     # 도금·금박은 몸체 부피와 금 함량이 무관하다(§6.2). 숫자를 내면 거짓말이 된다.
     volume_unmeasurable = inp.product_k.lower() in VOLUME_UNMEASURABLE_PRODUCTS
 
+    # 다만 이런 제품은 함유량이 **제품에 인쇄돼 있다**("순금 0.005g").
+    # 표기값을 받으면 측정 대신 그걸 쓴다 — 우리 추정보다 훨씬 정확하다.
+    # 측정값이 아니라는 사실은 mass_source 로 명시한다.
+    declared_g = inp.declared_gold_g if (inp.declared_gold_g or 0) > 0 else None
+    if volume_unmeasurable and declared_g:
+        mass = float(declared_g)
+        volume_unmeasurable = False
+        mass_source = "declared_label"
+    else:
+        mass_source = "measured_volume"
+
     # ── 신뢰도 입력 매핑 ──
     scale_tight = fusion.anchor_used and not fusion.ill_conditioned
     thickness_assumed = rec.thickness_clamp is not None
@@ -356,7 +367,12 @@ def _run_single(
         precision_boost=K.is_reliable and scale_tight,
         coarse_volume_model=weak_model or thickness_assumed,
     )
-    tier = conf_mod.apply_prior_demotion(mass, inp.product_k, cstate.tier())
+    if mass_source == "declared_label":
+        # 표기값은 제조사 스펙이다 — 우리 측정 신뢰도로 깎을 대상이 아니다.
+        # 다만 "우리가 잰 값"도 아니므로 medium 으로 두고 출처를 밝힌다.
+        tier = "medium"
+    else:
+        tier = conf_mod.apply_prior_demotion(mass, inp.product_k, cstate.tier())
     pct = conf_mod.ConfidenceState(
         multires_penalty=depth_penalty,
         scale_tight=scale_tight,
@@ -367,7 +383,7 @@ def _run_single(
     if tier == "low":
         pct = min(pct, 35.0)
 
-    vol_sigma = conf_mod.volume_relative_sigma(
+    vol_sigma = 0.0 if mass_source == "declared_label" else conf_mod.volume_relative_sigma(
         anchor_used=fusion.anchor_used,
         depth_rmse_mm=fusion.depth_rmse_mm,
         reference_distance_mm=fusion.card_distance_mm,
@@ -403,6 +419,13 @@ def _run_single(
             f"추정 무게가 비현실적으로 큽니다(상한 {mass_cap_g:.0f} g 초과). 촬영을 다시 확인해 주세요."
         )
 
+    if mass_source == "declared_label":
+        warnings.insert(
+            0,
+            f"도금·금박 제품이라 부피로는 금 함량을 잴 수 없어, 입력하신 "
+            f"제품 표기 {declared_g:g} g 을 그대로 사용했습니다. "
+            "아래 실측 치수는 제품 확인용 참고값입니다.",
+        )
     if volume_unmeasurable:
         warnings.insert(
             0,
@@ -416,6 +439,7 @@ def _run_single(
         "suppress_mass_display": implausible_mass or volume_unmeasurable,
         "implausible_mass": implausible_mass,
         "volume_unmeasurable": volume_unmeasurable,
+        "mass_source": mass_source,
         "sanity_mass_cap_g": round(mass_cap_g, 4),
         "used_card_fallback_views": [],
         "warnings": warnings,

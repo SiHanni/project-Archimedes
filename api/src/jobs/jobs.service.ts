@@ -122,6 +122,8 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     const ref = num(body.reference_weight_g);
     // 골드바처럼 사진으로 못 재는 두께 — worker 가 관측 대신 이 값을 쓴다
     const refThickness = num(body.reference_thickness_mm);
+    // 도금·금박 제품에 인쇄된 순금 함유량 — 부피로는 못 재므로 표기값을 쓴다
+    const declaredGold = num(body.declared_gold_g);
     const input = {
       capture_mode: captureMode,
       image,
@@ -131,6 +133,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       product_k: (body.product_k || 'ring').toLowerCase(),
       reference_weight_g: ref,
       reference_thickness_mm: refThickness,
+      declared_gold_g: declaredGold,
       knows_weight: body.knows_weight || null,
     };
     await this.pool.execute(

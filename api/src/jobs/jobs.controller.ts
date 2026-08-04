@@ -65,6 +65,7 @@ export class JobsController {
       product_k: body.product_k || 'ring',
       reference_weight_g: body.reference_weight_g,
       reference_thickness_mm: body.reference_thickness_mm,
+      declared_gold_g: body.declared_gold_g,
       knows_weight: body.knows_weight,
     });
   }

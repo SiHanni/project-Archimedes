@@ -40,6 +40,8 @@ class JobInputRecord(BaseModel):
     # 골드바처럼 **깊이로 못 재는 얇은 제품**의 두께(mm). 각인·규격에서 알 수 있다.
     # 주면 관측값 대신 이 값을 쓴다.
     reference_thickness_mm: float | None = None
+    # 도금·금박 제품에 **인쇄된 순금 함유량**(g). 부피로는 못 재므로 표기값을 받는다.
+    declared_gold_g: float | None = None
     knows_weight: str | None = None  # "yes" | "no" | None — UX only
 
     @model_validator(mode="after")

@@ -169,3 +169,35 @@ def test_solid_products_still_report_mass(single_settings: Settings) -> None:
     out = _run(single_settings, metal="gold", purity="24k", product_k="ring")
     assert out["meta"]["sanity"]["volume_unmeasurable"] is False
     assert out["mass_range"] is not None
+
+
+def test_plated_with_declared_label_reports_that_weight(single_settings: Settings) -> None:
+    """
+    도금·금박은 부피로 못 재지만 함유량이 **제품에 인쇄돼 있다**.
+    표기값을 받으면 그걸 쓰고, 측정값이 아님을 출처로 밝힌다.
+    """
+    out = _run(
+        single_settings,
+        metal="gold",
+        purity="24k",
+        product_k="plated",
+        declared_gold_g=0.005,
+    )
+
+    sanity = out["meta"]["sanity"]
+    assert sanity["mass_source"] == "declared_label"
+    assert sanity["volume_unmeasurable"] is False
+    assert sanity["suppress_mass_display"] is False
+    assert out["mass_est_g"] == pytest.approx(0.005)
+    # 표기값은 제조사 스펙이라 우리 측정 불확실성을 얹지 않는다
+    assert out["meta"]["uncertainty"]["volume_relative_sigma"] == 0.0
+    # low 가 아니어야 §14.1 견적 게이팅을 통과한다
+    assert out["confidence_tier"] != "low"
+    assert "제품 표기" in sanity["warnings"][0]
+
+
+def test_plated_without_label_still_refuses(single_settings: Settings) -> None:
+    """표기값을 안 주면 종전대로 억제한다 — 몸체 부피를 금으로 치면 안 된다."""
+    out = _run(single_settings, metal="gold", purity="24k", product_k="plated")
+    assert out["meta"]["sanity"]["mass_source"] == "measured_volume"
+    assert out["meta"]["sanity"]["suppress_mass_display"] is True

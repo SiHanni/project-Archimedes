@@ -90,6 +90,13 @@ class Settings(BaseSettings):
     # 배치를 고정하면 탐색 영역이 절반으로 줄어 오검출이 크게 준다(§4).
     # "any" 는 규약을 강제하지 않는 완화 모드.
     object_side: str = Field(default="left", validation_alias="ARCHIMEDES_OBJECT_SIDE")
+    # 각인 판독 (stub | rapidocr). 골드바처럼 함유량이 새겨진 제품에서
+    # 부피로 못 재는 값을 **읽어서** 얻는다.
+    ocr_backend: str = Field(default="stub", validation_alias="ARCHIMEDES_OCR_BACKEND")
+    # 이 신뢰도 미만이면 읽은 값을 무게로 쓰지 않고 참고로만 보여 준다
+    ocr_min_confidence: float = Field(
+        default=0.7, validation_alias="ARCHIMEDES_OCR_MIN_CONFIDENCE"
+    )
     # 세그 산출물(오버레이·마스크·누끼)을 S3 에 저장할지 — 평가·오토라벨링용
     save_segmentation_assets: bool = Field(
         default=True, validation_alias="ARCHIMEDES_SAVE_SEG_ASSETS"

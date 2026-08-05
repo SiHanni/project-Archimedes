@@ -76,6 +76,9 @@ export type JobSanityMeta = {
   volume_unmeasurable?: boolean;
   /** measured_volume | declared_label — 표기값 기반이면 그 사실을 UI 가 밝혀야 한다 */
   mass_source?: string;
+  body_not_solid_gold?: boolean;
+  measured_mass_g?: number | null;
+  measured_over_declared_ratio?: number | null;
 };
 
 /** worker `runner` — soft/hard 등급과 재촬영 유도 */
@@ -171,6 +174,14 @@ export type JobDto = {
       capture_mode?: string;
       sanity?: JobSanityMeta;
       segmentation?: JobSegmentationMeta;
+      /** worker `ocr` — 제품 각인에서 읽어 낸 함유량·순도 */
+      label_ocr?: {
+        texts?: string[];
+        weight_g?: number | null;
+        weight_confidence?: number;
+        weight_source_text?: string | null;
+        purity?: string | null;
+      };
       workflow?: JobWorkflowMeta;
       scale_fusion?: JobScaleFusionMeta;
       reconstruction?: JobReconstructionMeta;

@@ -28,7 +28,12 @@ from app.pipeline import confidence as conf_mod
 from app.pipeline import hollow
 from app.pipeline import jewel_layout as jewel_layout_mod
 from app.pipeline import voxel as voxel_mod
-from app.pipeline.backends import get_depth_estimator, get_detector, get_segmenter
+from app.pipeline.backends import (
+    get_depth_estimator,
+    get_detector,
+    get_ocr_reader,
+    get_segmenter,
+)
 from app.pipeline.backends.types import Detection
 from app.pipeline.camera import intrinsics_from_card, intrinsics_from_exif
 from app.pipeline.card import (
@@ -42,6 +47,7 @@ from app.pipeline.geometry_g1 import jewel_bbox_uv_mm
 from app.pipeline.height_segment import segment_by_height
 from app.pipeline.ingest import bytes_to_bgr, collect_exif
 from app.pipeline.jewel_mask import refine_jewel_mask
+from app.pipeline.ocr import LabelReading, read_label
 from app.pipeline.quality_gate import check_image_quality
 from app.pipeline.reconstruct import reconstruct_from_depth
 from app.pipeline.scale_fusion import fuse_scale
@@ -325,6 +331,15 @@ def _run_single(
             dets = _keep_near_card(dets, card)
         box, det_meta = _select_jewelry_box(dets, card)
         det_meta["backend"] = detector.name
+        if detector.name == "stub":
+            # 스텁은 "가장 큰 밝은 덩어리"일 뿐 귀금속 검출기가 아니다.
+            # 그 박스로 분할을 가두면 엉뚱한 곳(카드 위 인쇄 등)만 보게 된다.
+            # 실측: 박스가 카드 쪽에 잡혀 카드 글자를 물체로 읽었다("KB号").
+            # ROI(카드 옆 반원)만으로 충분하므로 박스는 쓰지 않는다.
+            det_meta["box_used"] = False
+            box = None
+        else:
+            det_meta["box_used"] = box is not None
         segmenter = get_segmenter(settings)
         seg = segmenter.segment(bgr, box)
         mask, mask_meta = refine_jewel_mask(
@@ -341,6 +356,22 @@ def _run_single(
         valid=dmap.valid_mask(),
         thickness_override_mm=inp.reference_thickness_mm,
     )
+
+    # ── 각인 판독 ──
+    # 골드바·봉입형은 두께가 마이크로미터라 부피로 못 잰다. 대신 함유량이
+    # **제품에 새겨져 있다**. 측정할 수 없는 것을 추정하지 말고 적힌 것을 읽는다.
+    # 전처리(CLAHE·업스케일)는 오히려 인식률을 떨어뜨렸다 — 금색 위 금색 각인이라
+    # 대비를 키우면 문자 경계가 뭉개진다. **원본 컬러 크롭**을 그대로 쓴다.
+    label: LabelReading = LabelReading()
+    if is_flat:
+        ys_m, xs_m = np.where(mask > 0)
+        if ys_m.size:
+            pad = max(8, round(0.02 * max(h, w)))
+            y0 = max(0, int(ys_m.min()) - pad)
+            y1 = min(h, int(ys_m.max()) + pad)
+            x0 = max(0, int(xs_m.min()) - pad)
+            x1 = min(w, int(xs_m.max()) + pad)
+            label = read_label(get_ocr_reader(settings), bgr[y0:y1, x0:x1])
 
     # 평가·오토라벨링 산출물 (계획서 Step 1): 누끼 오버레이 · 마스크 · 폴리곤
     seg_assets_meta: dict[str, Any] = {}
@@ -374,6 +405,12 @@ def _run_single(
     # 표기값을 받으면 측정 대신 그걸 쓴다 — 우리 추정보다 훨씬 정확하다.
     # 측정값이 아니라는 사실은 mass_source 로 명시한다.
     declared_g = inp.declared_gold_g if (inp.declared_gold_g or 0) > 0 else None
+    declared_from_ocr = False
+    if declared_g is None and label.weight_g and label.weight_confidence >= settings.ocr_min_confidence:
+        # 사용자가 안 넣었고 각인을 충분히 확신할 때만 쓴다.
+        # 사용자 입력이 항상 우선 — 우리가 읽은 것보다 본인이 아는 게 낫다.
+        declared_g = label.weight_g
+        declared_from_ocr = True
     measured_mass = mass
     body_not_solid_gold = False
     declared_ratio: float | None = None
@@ -388,7 +425,7 @@ def _run_single(
         body_not_solid_gold = declared_ratio is not None and declared_ratio > SOLID_GOLD_RATIO_THRESHOLD
         mass = float(declared_g)
         volume_unmeasurable = False
-        mass_source = "declared_label"
+        mass_source = "ocr_label" if declared_from_ocr else "declared_label"
     else:
         mass_source = "measured_volume"
 
@@ -408,7 +445,7 @@ def _run_single(
         precision_boost=K.is_reliable and scale_tight,
         coarse_volume_model=weak_model or thickness_assumed,
     )
-    if mass_source == "declared_label":
+    if mass_source in ("declared_label", "ocr_label"):
         # 표기값은 제조사 스펙이다 — 우리 측정 신뢰도로 깎을 대상이 아니다.
         # 다만 "우리가 잰 값"도 아니므로 medium 으로 두고 출처를 밝힌다.
         tier = "medium"
@@ -424,7 +461,7 @@ def _run_single(
     if tier == "low":
         pct = min(pct, 35.0)
 
-    vol_sigma = 0.0 if mass_source == "declared_label" else conf_mod.volume_relative_sigma(
+    vol_sigma = 0.0 if mass_source in ("declared_label", "ocr_label") else conf_mod.volume_relative_sigma(
         anchor_used=fusion.anchor_used,
         depth_rmse_mm=fusion.depth_rmse_mm,
         reference_distance_mm=fusion.card_distance_mm,
@@ -453,6 +490,11 @@ def _run_single(
             f"두께를 관측하지 못해 제품 기준값({rec.h_mean_mm:.1f} mm)으로 가정했습니다. "
             "실제 무게와 차이가 클 수 있습니다."
         )
+    if label.purity and label.purity != inp.purity.lower():
+        warnings.append(
+            f"각인은 «{label.purity_source_text}»({label.purity})로 보이는데 "
+            f"선택하신 함량은 {inp.purity} 입니다. 함량이 다르면 무게도 달라집니다."
+        )
     if not K.is_reliable:
         warnings.append("사진에 초점거리 정보(EXIF)가 없어 카메라 값을 추정했습니다.")
     if implausible_mass:
@@ -460,7 +502,14 @@ def _run_single(
             f"추정 무게가 비현실적으로 큽니다(상한 {mass_cap_g:.0f} g 초과). 촬영을 다시 확인해 주세요."
         )
 
-    if mass_source == "declared_label":
+    if mass_source == "ocr_label":
+        warnings.insert(
+            0,
+            f"제품 각인에서 «{label.weight_source_text}» 를 읽어 {declared_g:g} g 으로 "
+            f"계산했습니다(인식 신뢰도 {label.weight_confidence:.0%}). "
+            "다르면 함유량을 직접 입력해 주세요.",
+        )
+    elif mass_source == "declared_label":
         warnings.insert(
             0,
             f"입력하신 제품 표기 {declared_g:g} g 을 그대로 사용했습니다. "
@@ -556,6 +605,7 @@ def _run_single(
                 "table": "depth",
             },
             "exif": {SINGLE_VIEW_KEY: exif},
+            "label_ocr": label.as_meta(),
             "sanity": sanity_meta,
         },
     )

@@ -24,6 +24,7 @@ from app.pipeline.backends.segmenter import (
 )
 from app.pipeline.backends.types import DepthKind, DepthMap, Detection, SegmentResult
 from app.pipeline.exceptions import PipelineError
+from app.pipeline.ocr import OcrReader, RapidOcrReader, StubOcrReader
 
 log = logging.getLogger(__name__)
 
@@ -35,15 +36,19 @@ __all__ = [
     "Detection",
     "Detector",
     "HeuristicSegmenter",
+    "OcrReader",
     "OnnxDepthEstimator",
     "OnnxMattingSegmenter",
     "OnnxYoloDetector",
+    "RapidOcrReader",
     "RembgSegmenter",
     "SegmentResult",
     "Segmenter",
     "StubDetector",
+    "StubOcrReader",
     "get_depth_estimator",
     "get_detector",
+    "get_ocr_reader",
     "get_segmenter",
 ]
 
@@ -77,6 +82,15 @@ def get_segmenter(settings: Settings) -> Segmenter:
             model_dir=settings.onnx_model_dir, filename=settings.segmenter_model_file
         )
     raise _unknown("segmenter", b, ("heuristic", "rembg", "onnx"))
+
+
+def get_ocr_reader(settings: Settings) -> OcrReader:
+    b = (settings.ocr_backend or "stub").strip().lower()
+    if b == "stub":
+        return StubOcrReader()
+    if b == "rapidocr":
+        return RapidOcrReader()
+    raise _unknown("ocr", b, ("stub", "rapidocr"))
 
 
 def get_depth_estimator(settings: Settings) -> DepthEstimator:

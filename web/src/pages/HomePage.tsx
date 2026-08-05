@@ -212,6 +212,7 @@ export function HomePage() {
   const fusion = job?.result?.meta?.scale_fusion;
   const recon = job?.result?.meta?.reconstruction;
   const seg = job?.result?.meta?.segmentation;
+  const ocr = job?.result?.meta?.label_ocr;
   const quote = job?.quote ?? null;
   const won = (v: number) => v.toLocaleString('ko-KR');
   const massG = job?.result?.mass_est_g;
@@ -505,7 +506,11 @@ export function HomePage() {
                 </p>
               ) : (
                 <p>
-                  {sanity?.mass_source === 'declared_label' ? '표기 함유량: ' : '추정 무게: '}
+                  {sanity?.mass_source === 'ocr_label'
+                    ? '각인에서 읽은 함유량: '
+                    : sanity?.mass_source === 'declared_label'
+                      ? '표기 함유량: '
+                      : '추정 무게: '}
                   <strong style={{ fontSize: '1.15rem', color: 'var(--gold-deep)' }}>{massG!.toFixed(3)} g</strong>
                 </p>
               )}
@@ -519,6 +524,15 @@ export function HomePage() {
                 {!hideMass ? `V_hull=${job.result.V_hull_mm3} mm³, V_adj=${job.result.V_adj_mm3} mm³, ` : ''}
                 {job.result.algorithm_version ?? job.algorithmVersion ?? ''}
               </p>
+              {ocr?.weight_g != null ? (
+                <p className="text-small" style={{ margin: '0.25rem 0 0' }}>
+                  제품 각인 «{ocr.weight_source_text}» 인식
+                  {ocr.weight_confidence != null
+                    ? ` (신뢰도 ${(ocr.weight_confidence * 100).toFixed(0)}%)`
+                    : ''}
+                  {ocr.purity ? ` · 순도 각인 ${ocr.purity}` : ''}
+                </p>
+              ) : null}
               {seg?.assets?.includes('overlay.jpg') && job.id ? (
                 <div style={{ marginTop: '0.75rem' }}>
                   <p className="notice__title" style={{ marginBottom: '0.35rem' }}>

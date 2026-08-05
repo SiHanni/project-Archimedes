@@ -1,11 +1,53 @@
-/** Docker nginx 프록시(`/api`→`/v1`) 또는 Vercel 빌드 시 `VITE_API_BASE`(터널 `/v1`) */
-export const apiBase = (import.meta.env.VITE_API_BASE || '/api').replace(/\/$/, '');
+const API_BASE_KEY = 'archimedes.apiBase';
+
+/**
+ * API 주소를 **런타임에** 정한다.
+ *
+ * 우선순위: `?api=` 쿼리 → localStorage → 빌드 시 `VITE_API_BASE` → `/api`
+ *
+ * 왜 런타임인가: 로컬 API 를 cloudflared Quick Tunnel 로 노출하는데 이 터널은
+ * 끊기면 **주소가 바뀐다**. 빌드 시점에 주소를 구우면 바뀔 때마다 Vercel 환경변수
+ * 갱신 + 재배포가 필요하고, 그 사이 사용자는 "Load Failed" 만 본다.
+ * 쿼리로 한 번 넘겨 주면 localStorage 에 남아 재배포 없이 계속 쓴다.
+ */
+function resolveApiBase(): string {
+  const strip = (v: string) => v.replace(/\/+$/, '');
+  try {
+    const fromQuery = new URLSearchParams(window.location.search).get('api');
+    if (fromQuery) {
+      const v = strip(fromQuery);
+      window.localStorage.setItem(API_BASE_KEY, v);
+      return v;
+    }
+    const saved = window.localStorage.getItem(API_BASE_KEY);
+    if (saved) return strip(saved);
+  } catch {
+    // localStorage 차단(프라이빗 모드 등) — 빌드 기본값으로 계속 간다
+  }
+  return strip(import.meta.env.VITE_API_BASE || '/api');
+}
+
+export const apiBase = resolveApiBase();
+
+/** fetch 자체가 실패한 경우(네트워크·CORS·터널 다운)를 사용자 말로 옮긴다 */
+class ApiUnreachableError extends Error {
+  constructor(base: string) {
+    super(
+      `API 서버에 연결할 수 없습니다. (${base})\n` +
+        '로컬 서버가 꺼져 있거나 터널 주소가 바뀌었을 수 있어요. ' +
+        '새 주소를 받으셨다면 이 페이지 주소 뒤에 ?api=새주소/v1 을 붙여 한 번만 열어 주세요.',
+    );
+    this.name = 'ApiUnreachableError';
+  }
+}
 
 export async function postJob(form: FormData): Promise<{ id: string; status: string }> {
-  const r = await fetch(`${apiBase}/jobs`, {
-    method: 'POST',
-    body: form,
-  });
+  let r: Response;
+  try {
+    r = await fetch(`${apiBase}/jobs`, { method: 'POST', body: form });
+  } catch {
+    throw new ApiUnreachableError(apiBase);
+  }
   if (!r.ok) {
     const t = await r.text();
     throw new Error(t || r.statusText);
@@ -14,7 +56,12 @@ export async function postJob(form: FormData): Promise<{ id: string; status: str
 }
 
 export async function getJob(id: string): Promise<JobDto> {
-  const r = await fetch(`${apiBase}/jobs/${id}`);
+  let r: Response;
+  try {
+    r = await fetch(`${apiBase}/jobs/${id}`);
+  } catch {
+    throw new ApiUnreachableError(apiBase);
+  }
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }

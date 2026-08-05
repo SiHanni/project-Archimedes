@@ -25,11 +25,11 @@ from typing import Any
 import cv2
 import numpy as np
 
-from app.constants import CARD_DILATE_PX, JEWEL_AREA_FRAC_MAX, JEWEL_AREA_FRAC_MIN
+from app.constants import JEWEL_AREA_FRAC_MAX, JEWEL_AREA_FRAC_MIN
 from app.pipeline.camera import Intrinsics
 from app.pipeline.card import CardGeometry, card_edge_lengths_px
 from app.pipeline.exceptions import PipelineError
-from app.pipeline.jewel_mask import side_bias
+from app.pipeline.jewel_mask import card_dilate_px, side_bias, touches_frame_border
 from app.pipeline.reconstruct import SupportPlane
 
 log = logging.getLogger(__name__)
@@ -93,7 +93,8 @@ def segment_by_height(
     # 테두리가 남는다. 명시적으로 뺀다.
     card_fill = np.zeros((h, w), np.uint8)
     cv2.fillPoly(card_fill, [np.asarray(card.quad_px, dtype=np.int32)], 255)
-    card_d = cv2.dilate(card_fill, np.ones((CARD_DILATE_PX, CARD_DILATE_PX), np.uint8))
+    d = card_dilate_px(card)
+    card_d = cv2.dilate(card_fill, np.ones((d, d), np.uint8))
     mask = cv2.bitwise_and(mask, cv2.bitwise_not(card_d))
 
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
@@ -110,12 +111,24 @@ def segment_by_height(
             error_severity="soft",
             suggested_action="retake_photo",
         )
+    # 프레임 가장자리에 닿는 성분은 배경이다 — 물체는 통째로 프레임 안에 있다.
+    # 실측(반지 사진): ROI 원이 프레임 위쪽을 넘어서 컵·케이블이 후보가 됐고,
+    # 그게 최대 성분이라 반지 대신 채택됐다(15.604 g).
+    inner = [i for i in range(1, n) if not touches_frame_border(stats[i], (h, w))]
+    if not inner:
+        raise PipelineError(
+            "ERR_SILHOUETTE_AREA",
+            "카드 옆에서 물체를 찾지 못했습니다(찾은 것이 모두 화면 밖으로 이어집니다). "
+            "귀금속이 화면 안에 통째로 보이도록 다시 찍어 주세요.",
+            error_severity="soft",
+            suggested_action="retake_photo",
+        )
     scores = [
         float(stats[i, cv2.CC_STAT_AREA])
         * side_bias(card, float(centroids[i][0]), float(centroids[i][1]), side)
-        for i in range(1, n)
+        for i in inner
     ]
-    best = 1 + int(np.argmax(scores))
+    best = inner[int(np.argmax(scores))]
     mask = ((labels == best).astype(np.uint8)) * 255
 
     frac = float(np.count_nonzero(mask)) / float(h * w)

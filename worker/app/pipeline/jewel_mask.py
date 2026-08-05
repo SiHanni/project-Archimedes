@@ -34,12 +34,28 @@ def _area_frac(mask: np.ndarray) -> float:
     return int(np.count_nonzero(mask)) / float(h * w)
 
 
+def card_dilate_px(card: CardGeometry) -> int:
+    """
+    카드를 뺄 때 얼마나 넉넉히 뺄지. **카드 크기에 비례**시킨다.
+
+    `CARD_DILATE_PX`(5) 는 고정 픽셀이라 4032px 사진에서는 사실상 0 이다.
+    쿼드가 카드 실제 외곽선에서 수십 px 안쪽으로 들어가면 **카드 테두리가
+    띠 모양으로 남아** 물체 후보가 된다.
+
+    실측(도련님 반지 사진): 채도 전경에서 파란 카드의 테두리 띠(카드 bbox 와
+    정확히 일치, 화면의 1.4%)가 반지(0.4%)를 제치고 최대 성분이 됐다.
+    """
+    _long, short = card_edge_lengths_px(card.quad_px)
+    return max(CARD_DILATE_PX, round(short * 0.04))
+
+
 def card_masks(card: CardGeometry, shape: tuple[int, int]) -> tuple[np.ndarray, np.ndarray]:
     """(팽창된 카드 영역, 침식된 카드 내부)."""
     h, w = shape[:2]
     filled = np.zeros((h, w), dtype=np.uint8)
     cv2.fillPoly(filled, [np.asarray(card.quad_px, dtype=np.int32)], 255)
-    dilated = cv2.dilate(filled, np.ones((CARD_DILATE_PX, CARD_DILATE_PX), np.uint8), iterations=1)
+    d = card_dilate_px(card)
+    dilated = cv2.dilate(filled, np.ones((d, d), np.uint8), iterations=1)
     k = max(3, (min(h, w) // 50) | 1)
     inner = cv2.erode(filled, np.ones((k, k), np.uint8), iterations=1)
     if int(np.count_nonzero(inner)) < 10:
@@ -82,6 +98,34 @@ def card_long_axis(card: CardGeometry) -> np.ndarray:
     if axis[0] < 0:
         axis = -axis
     return axis / max(float(np.linalg.norm(axis)), 1e-9)
+
+
+# 성분이 프레임 가장자리에 이만큼 닿으면 배경으로 본다
+_BORDER_MARGIN_RATIO = 0.005
+
+
+def touches_frame_border(
+    stats_row: np.ndarray, shape: tuple[int, int], margin_ratio: float = _BORDER_MARGIN_RATIO
+) -> bool:
+    """
+    연결성분이 **프레임 가장자리에 닿는가**. 닿으면 배경이다.
+
+    촬영 규약상 귀금속은 카드 옆에, 프레임 안쪽에 통째로 보이게 둔다. 반면
+    책상 너머 배경(컵·케이블·모니터)은 언제나 프레임 밖으로 이어지므로 가장자리에
+    닿는다. 이 한 줄이 "물체 후보"와 "배경 조각"을 아주 싸게 가른다.
+
+    실측(도련님 반지 사진): 카드 긴 변이 1721px 인데 카드 중심 y 가 1542 라
+    반경 1배 ROI 가 프레임 위쪽(y=-179)을 넘어섰다. 그 안에 들어온 컵·케이블이
+    바닥 위로 솟은 것으로 잡혀 최대 성분이 됐고, 정작 반지는 버려졌다.
+    결과 15.604 g.
+    """
+    h, w = shape[0], shape[1]
+    m = max(2, round(margin_ratio * max(h, w)))
+    x = int(stats_row[cv2.CC_STAT_LEFT])
+    y = int(stats_row[cv2.CC_STAT_TOP])
+    ww = int(stats_row[cv2.CC_STAT_WIDTH])
+    hh = int(stats_row[cv2.CC_STAT_HEIGHT])
+    return x <= m or y <= m or (x + ww) >= (w - m) or (y + hh) >= (h - m)
 
 
 def side_bias(card: CardGeometry, cx: float, cy: float, side: str) -> float:
@@ -158,12 +202,17 @@ def refine_jewel_mask(
     # 어긴 배치도 **버리지 않고 감점만** 한다(실측: 금괴가 카드 아래에 놓였다).
     n, labels, stats, centroids = cv2.connectedComponentsWithStats(mask, connectivity=8)
     if n > 1:
+        # 프레임 가장자리에 닿는 성분은 배경이다(화면 밖으로 이어지는 것).
+        # 하나도 안 남으면 종전대로 전체에서 고른다 — 여기서 실패시키지는 않는다.
+        pool = [i for i in range(1, n) if not touches_frame_border(stats[i], mask.shape)]
+        if not pool:
+            pool = list(range(1, n))
         scores = [
             float(stats[i, cv2.CC_STAT_AREA])
             * side_bias(card, float(centroids[i][0]), float(centroids[i][1]), side)
-            for i in range(1, n)
+            for i in pool
         ]
-        best = 1 + int(np.argmax(scores))
+        best = pool[int(np.argmax(scores))]
         mask = ((labels == best).astype(np.uint8)) * 255
         frac = _area_frac(mask)
 

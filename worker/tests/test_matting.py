@@ -84,3 +84,50 @@ def test_grabcut_skips_tiny_seed():
     out, meta = refine_with_grabcut(img, seed)
     assert meta["matting"] == "skipped_small_seed"
     assert np.array_equal(out, seed)
+
+
+def test_border_touching_component_is_rejected():
+    """
+    프레임 가장자리에 닿는 성분은 배경이다.
+
+    실측(반지 사진): ROI 원이 프레임 위쪽을 넘어서 컵·케이블이 후보가 됐고,
+    그게 최대 성분이라 반지 대신 채택됐다(15.604 g).
+    """
+    from app.pipeline.jewel_mask import touches_frame_border
+
+    shape = (4032, 3024)
+    # 위쪽 가장자리에 붙은 덩어리
+    edge = np.zeros(5, np.int32)
+    edge[cv2.CC_STAT_LEFT], edge[cv2.CC_STAT_TOP] = 800, 0
+    edge[cv2.CC_STAT_WIDTH], edge[cv2.CC_STAT_HEIGHT] = 600, 300
+    assert touches_frame_border(edge, shape)
+
+    # 프레임 안쪽에 통째로 있는 덩어리
+    inner = np.zeros(5, np.int32)
+    inner[cv2.CC_STAT_LEFT], inner[cv2.CC_STAT_TOP] = 600, 2300
+    inner[cv2.CC_STAT_WIDTH], inner[cv2.CC_STAT_HEIGHT] = 700, 700
+    assert not touches_frame_border(inner, shape)
+
+
+def test_chroma_finds_metal_that_matches_background_brightness():
+    """
+    명도가 배경과 같아도 채도로 금속을 찾는다.
+
+    실측(반지 사진): 밝은 베이지 책상 위 금반지에서 Otsu 는 반지 안쪽 구멍의
+    **그림자**를 물체로 잡았다.
+    """
+    from app.pipeline.appearance import chroma_foreground, local_lab_contrast
+
+    img = np.full((400, 400, 3), 170, np.uint8)  # 밝은 무채색 책상
+    cv2.circle(img, (200, 200), 90, (60, 170, 215), 18)  # 금색 고리
+    cv2.circle(img, (200, 200), 72, (150, 150, 150), -1)  # 고리 안쪽 그림자
+
+    fg = chroma_foreground(img)
+    ring_hit = int(cv2.countNonZero(fg[110:130, 190:210]))  # 고리 위쪽 밴드
+    hole = np.zeros(img.shape[:2], np.uint8)
+    cv2.circle(hole, (200, 200), 60, 255, -1)
+    hole_hit = int(cv2.countNonZero(cv2.bitwise_and(fg, hole)))
+
+    assert ring_hit > 0, "금속 밴드를 못 잡았다"
+    assert hole_hit < int(cv2.countNonZero(hole)) * 0.2, "안쪽 그림자를 물체로 잡았다"
+    assert local_lab_contrast(img, fg) > 5.0

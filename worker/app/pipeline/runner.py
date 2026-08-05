@@ -29,6 +29,7 @@ from app.pipeline import confidence as conf_mod
 from app.pipeline import hollow
 from app.pipeline import jewel_layout as jewel_layout_mod
 from app.pipeline import voxel as voxel_mod
+from app.pipeline.appearance import chroma_foreground, local_lab_contrast
 from app.pipeline.backends import (
     get_depth_estimator,
     get_detector,
@@ -348,10 +349,32 @@ def _run_single(
             det_meta["box_used"] = box is not None
         segmenter = get_segmenter(settings)
         seg = segmenter.segment(bgr, box)
-        mask, mask_meta = refine_jewel_mask(
-            seg.mask, card, SINGLE_VIEW_KEY, side=settings.object_side
-        )
+
+        # 명도 Otsu 는 **밝은 바닥에서 뒤집혀 그림자를 물체로 잡는다**
+        # (실측 반지 사진: 반지 안쪽 구멍의 그림자를 잡아 14.1×6.9mm 반달).
+        # 채도 후보를 하나 더 만들어, 주변과 색이 더 다른 쪽을 쓴다.
+        candidates: list[tuple[str, np.ndarray, dict[str, Any]]] = []
+        for src_name, fg in (("otsu", seg.mask), ("chroma", chroma_foreground(bgr))):
+            try:
+                m_, meta_ = refine_jewel_mask(
+                    fg, card, SINGLE_VIEW_KEY, side=settings.object_side
+                )
+            except PipelineError:
+                continue
+            candidates.append((src_name, m_, meta_))
+        if not candidates:
+            # 둘 다 실패하면 원래 오류를 그대로 낸다
+            mask, mask_meta = refine_jewel_mask(
+                seg.mask, card, SINGLE_VIEW_KEY, side=settings.object_side
+            )
+            src_used = "otsu"
+        else:
+            scored = [(local_lab_contrast(bgr, m_), s_, m_, meta_) for s_, m_, meta_ in candidates]
+            best_c, src_used, mask, mask_meta = max(scored, key=lambda t: t[0])
+            mask_meta["appearance_contrast"] = round(best_c, 2)
+            mask_meta["appearance_candidates"] = {s_: round(c_, 2) for c_, s_, _m, _t in scored}
         mask_meta["backend"] = segmenter.name
+        mask_meta["appearance_source"] = src_used
 
         # 외형 경로의 Otsu 는 금의 **반사로 빛나는 일부만** 잡는다(실측: 금괴
         # 상단 40%). 씨앗의 색 분포를 학습해 나머지를 끌어온다 — 누끼 품질이

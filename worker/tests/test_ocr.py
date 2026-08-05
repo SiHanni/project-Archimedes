@@ -89,3 +89,31 @@ def test_no_text_returns_empty_reading() -> None:
     reader = FakeReader([[]])
     r = read_label(reader, np.zeros((10, 10, 3), np.uint8))
     assert r.weight_g is None and r.texts == []
+
+
+def test_truncated_fragment_does_not_beat_full_reading():
+    """
+    앞자리가 떨어져 나간 조각이 신뢰도만 높다고 이기면 안 된다.
+
+    실측(도련님 08:25 사진): 온전한 "0.05g"(0.72)와 잘린 "05g"(0.988)가 함께
+    잡혀 신뢰도만 보고 5 g 으로 읽었다 — 정답의 100배.
+    """
+    from app.pipeline.ocr import parse_label
+
+    items = [
+        ("999", 0.99), ("666", 0.6), ("05g", 0.988), ("FINE", 0.95),
+        ("0.05g", 0.72), ("GOD", 0.8), ("FINE GO#D", 0.6),
+    ]
+    r = parse_label(items)
+    assert r.weight_g == 0.05
+    assert r.weight_source_text == "0.05g"
+    assert r.purity == "24k"
+
+
+def test_full_reading_still_wins_on_confidence_when_no_fragment():
+    """조각이 없으면 종전대로 신뢰도가 가장 높은 것을 쓴다."""
+    from app.pipeline.ocr import parse_label
+
+    r = parse_label([("3.75g", 0.6), ("1.2 g", 0.95)])
+    assert r.weight_g == 1.2
+    assert r.weight_source_text == "1.2 g"

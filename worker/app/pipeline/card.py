@@ -446,26 +446,53 @@ def _suppress_contained(
     return keep or cands
 
 
-def _bright_blob_quads(
+def background_contrast_binary(bgr: np.ndarray) -> np.ndarray:
+    """
+    **배경(바닥) 색에서 먼 화소**를 전경으로 본다. 카드가 한 덩어리가 된다.
+
+    왜 밝기로는 안 되는가: 신용카드는 인쇄가 밝기까지 갈라 놓는다. 실측
+    (도련님 08:25 사진) 에서 카드 위쪽 핑크·빨강 영역이 Otsu 임계 아래로 떨어져
+    **초록 아래쪽 절반만** 덩어리가 됐고, 전체 카드는 후보에 아예 오르지 못했다.
+    엣지·적응형도 같은 경계를 외곽선으로 잡아 전부 초록 절반을 냈다.
+    그 결과 σ 가 1.3배 어긋나 금괴가 52.4×24.1mm(실제 약 40×20)로 나왔다.
+
+    배경색 기준으로 재면 핑크든 초록이든 흰색이든 "바닥이 아닌 것"으로 묶인다.
+    배경색은 **프레임 테두리 띠의 중앙값**으로 잡는다 — 촬영 규약상 물체와 카드는
+    가운데 있고 테두리는 바닥이다.
+
+    실측 개선: 도련님 사진에서 전체 카드(프레임의 15.8%, 역산 비율 1.623)를
+    처음으로 후보에 올렸다.
+    """
+    h, w = bgr.shape[:2]
+    lab = cv2.cvtColor(cv2.GaussianBlur(bgr, (0, 0), 3), cv2.COLOR_BGR2LAB).astype(np.float32)
+    m = max(4, round(min(h, w) * 0.06))
+    ring = np.concatenate(
+        [
+            lab[:m].reshape(-1, 3),
+            lab[-m:].reshape(-1, 3),
+            lab[:, :m].reshape(-1, 3),
+            lab[:, -m:].reshape(-1, 3),
+        ]
+    )
+    bg = np.median(ring, axis=0)
+    dist = np.linalg.norm(lab - bg, axis=2)
+    dist = (255.0 * dist / max(float(dist.max()), 1e-6)).astype(np.uint8)
+    _t, binary = cv2.threshold(dist, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    k = max(3, round(max(h, w) * 0.004) | 1)
+    return cv2.morphologyEx(binary, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
+
+
+def _split_and_extract(
+    binary: np.ndarray,
     gray: np.ndarray,
     shape: tuple[int, int, int] | tuple[int, int],
     min_area_ratio: float,
-    focal_px_hint: float | None = None,
+    focal_px_hint: float | None,
 ) -> list[tuple[np.ndarray, float]]:
-    """
-    **밝은 덩어리 통째로** 카드 후보를 만든다.
-
-    엣지 기반은 카드 **인쇄물의 색 경계**(핑크/초록)를 외곽선과 구분하지 못해
-    카드를 조각낸다(실측: 초록 띠만 잡힘). 반면 우리 프로토콜은 "어두운 바닥"을
-    요구하므로, 밝기로 이진화하면 카드는 색과 무관하게 **한 덩어리**가 된다.
-    """
+    """이진 마스크 → 카드 후보들. 침식으로 병합 덩어리를 떼고 검증까지 한다."""
     h, w = shape[0], shape[1]
     img_area = float(h * w)
-    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    if float(binary.mean()) > 127:  # 배경이 밝으면 반전
-        binary = 255 - binary
     k = max(3, round(max(h, w) * 0.004) | 1)
-    binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
 
     # 카드가 옆의 밝은 물체(금괴·투명케이스)와 한 덩어리로 붙는 일이 잦다.
     # **침식으로 가는 연결을 끊고**, 끊어진 조각을 다시 팽창시켜 원래 모양을
@@ -499,6 +526,41 @@ def _bright_blob_quads(
                 out.append((cand_quad, min(blob_fill, _local_fill(gray, cand_quad))))
     # 억제는 호출부에서 **모든 블러 단계를 모은 뒤** 한 번에 한다
     return out
+
+
+def _bright_blob_quads(
+    gray: np.ndarray,
+    shape: tuple[int, int, int] | tuple[int, int],
+    min_area_ratio: float,
+    focal_px_hint: float | None = None,
+) -> list[tuple[np.ndarray, float]]:
+    """
+    **밝은 덩어리 통째로** 카드 후보를 만든다.
+
+    엣지 기반은 카드 **인쇄물의 색 경계**(핑크/초록)를 외곽선과 구분하지 못해
+    카드를 조각낸다(실측: 초록 띠만 잡힘). 밝기로 묶으면 인쇄 경계 일부는 넘어선다.
+    다만 인쇄가 **밝기까지** 갈라 놓으면 이것도 진다 — 그때는
+    `background_contrast_binary` 경로가 받는다.
+    """
+    _t, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    if float(binary.mean()) > 127:  # 배경이 밝으면 반전
+        binary = 255 - binary
+    k = max(3, round(max(shape[0], shape[1]) * 0.004) | 1)
+    binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
+    return _split_and_extract(binary, gray, shape, min_area_ratio, focal_px_hint)
+
+
+def _bg_contrast_quads(
+    bgr: np.ndarray,
+    gray: np.ndarray,
+    shape: tuple[int, int, int] | tuple[int, int],
+    min_area_ratio: float,
+    focal_px_hint: float | None = None,
+) -> list[tuple[np.ndarray, float]]:
+    """배경색 대비로 카드 후보를 만든다 — 인쇄 색·밝기와 무관하게 한 덩어리."""
+    return _split_and_extract(
+        background_contrast_binary(bgr), gray, shape, min_area_ratio, focal_px_hint
+    )
 
 
 def _contours_from_canny(gray: np.ndarray, t1: int, t2: int) -> list:
@@ -581,6 +643,11 @@ def detect_card_quad(
         pooled.extend(
             _bright_blob_quads(gray, bgr.shape, min_area_ratio=0.03, focal_px_hint=focal_px_hint)
         )
+
+    # 배경색 대비는 블러 단계와 무관하므로 한 번만 돈다
+    pooled.extend(
+        _bg_contrast_quads(bgr, base, bgr.shape, min_area_ratio=0.03, focal_px_hint=focal_px_hint)
+    )
 
     for cand, fill in _suppress_contained(pooled, bgr.shape, focal_px_hint):
         sc = _quad_score(

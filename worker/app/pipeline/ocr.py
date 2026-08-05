@@ -131,7 +131,7 @@ def parse_label(items: list[tuple[str, float]]) -> LabelReading:
     """
     reading = LabelReading(texts=[t for t, _ in items])
 
-    best_conf = 0.0
+    candidates: list[tuple[str, float, float]] = []  # (원문, 신뢰도, 그램)
     for text, conf in items:
         m = _WEIGHT_RE.search(text)
         if not m:
@@ -144,10 +144,22 @@ def parse_label(items: list[tuple[str, float]]) -> LabelReading:
         # 소비자 귀금속 범위 밖은 각인이 아니라 다른 숫자로 본다
         if grams is None or not (0.0001 <= grams <= 2000.0):
             continue
-        if conf > best_conf:
-            best_conf = conf
-            reading.weight_g = grams
+        candidates.append((text, conf, grams))
+
+    # **잘린 조각을 버린다.** OCR 은 같은 각인을 여러 번, 여러 방향에서 읽는데
+    # 앞자리가 떨어져 나간 조각이 오히려 더 높은 신뢰도를 받는 일이 있다.
+    # 실측(도련님 사진): 온전한 "0.05g"(낮은 신뢰도)와 잘린 "05g"(0.988)가 함께
+    # 잡혀 신뢰도만 보고 **5 g** 으로 읽었다 — 정답의 100배다.
+    # 어떤 후보의 원문이 다른 후보 원문에 통째로 들어가면 그건 조각이다.
+    trimmed = [
+        c
+        for c in candidates
+        if not any(c[0] != o[0] and c[0] in o[0] for o in candidates)
+    ]
+    for text, conf, grams in trimmed or candidates:
+        if conf > reading.weight_confidence:
             reading.weight_confidence = conf
+            reading.weight_g = grams
             reading.weight_source_text = text
 
     for text, _conf in items:

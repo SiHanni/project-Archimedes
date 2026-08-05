@@ -132,3 +132,31 @@ def test_merged_blob_does_not_suppress_the_card():
     card_area = abs(cv2.contourArea(card.astype(np.float32)))
 
     assert any(abs(a - card_area) < card_area * 0.01 for a in areas)
+
+
+def test_background_contrast_groups_a_two_tone_card():
+    """
+    인쇄가 **밝기까지** 갈라 놓은 카드도 배경색 대비로는 한 덩어리가 된다.
+
+    실측(도련님 08:25 사진): 카드 위쪽 핑크·빨강이 Otsu 임계 아래로 떨어져
+    초록 아래 절반만 덩어리가 됐고, 전체 카드는 후보에 오르지도 못했다.
+    """
+    from app.pipeline.card import background_contrast_binary
+
+    h, w = 900, 700
+    img = np.full((h, w, 3), 45, np.uint8)  # 어두운 책상
+    # 위 절반은 어두운 빨강(밝기가 배경과 가깝다), 아래 절반은 밝은 초록
+    img[300:520, 200:560] = (40, 40, 165)
+    img[520:740, 200:560] = (80, 220, 90)
+
+    binary = background_contrast_binary(img)
+    n, labels, stats, _c = cv2.connectedComponentsWithStats(binary, connectivity=8)
+    assert n > 1
+    biggest = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+    comp = labels == biggest
+
+    # 두 색 영역이 **같은** 성분에 들어가야 한다
+    assert comp[400, 380], "위쪽(어두운 빨강)이 전경에 없다"
+    assert comp[640, 380], "아래쪽(밝은 초록)이 전경에 없다"
+    ys, _xs = np.where(comp)
+    assert ys.min() < 340 and ys.max() > 700, "카드 전체 높이를 못 덮었다"

@@ -146,7 +146,11 @@ export class PricingService {
 function staticTableAsOf(): string {
   const raw = (process.env.PRICE_TABLE_AS_OF || '').trim();
   if (raw) {
-    const d = new Date(raw.length === 10 ? `${raw}T00:00:00+09:00` : raw);
+    // 날짜만 준 경우 **KST 정오**로 잡는다. 자정(00:00+09:00)으로 잡으면
+    // UTC 로는 전날 15:00 이 되어, ISO 문자열 앞 10자만 보는 쪽에서는
+    // 하루 전 시세로 읽힌다(실측: 2026-08-05 입력 → "2026-08-04" 로 표시).
+    // 정오면 UTC 로도 같은 날이라 어느 쪽으로 읽어도 날짜가 어긋나지 않는다.
+    const d = new Date(raw.length === 10 ? `${raw}T12:00:00+09:00` : raw);
     if (!Number.isNaN(d.getTime())) return d.toISOString();
   }
   return new Date().toISOString();

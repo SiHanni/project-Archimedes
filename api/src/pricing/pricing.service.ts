@@ -76,7 +76,9 @@ export class PricingService {
       metal,
       purity,
       source: 'static-table',
-      asOf: new Date().toISOString(),
+      // ⚠️ 조회 시각을 쓰면 안 된다. 고정 표는 며칠 전 값일 수 있는데 `asOf` 에
+      // now() 를 넣으면 **오늘 시세인 척**하게 된다. 표를 채운 날짜를 그대로 밝힌다.
+      asOf: staticTableAsOf(),
       // 고정 표는 실시간이 아니다 — UI 가 "참고용"임을 알 수 있게 항상 표시
       stale: true,
     };
@@ -133,6 +135,21 @@ export class PricingService {
       clearTimeout(timer);
     }
   }
+}
+
+/**
+ * 고정 표가 **언제 기준인지**. `PRICE_TABLE_AS_OF`(YYYY-MM-DD 또는 ISO)를 쓴다.
+ *
+ * 지정이 없으면 조회 시각으로 떨어지는데, 그러면 며칠 전 값이 오늘 시세로
+ * 보고된다. 시세는 매일 움직이므로 이건 그냥 틀린 정보다.
+ */
+function staticTableAsOf(): string {
+  const raw = (process.env.PRICE_TABLE_AS_OF || '').trim();
+  if (raw) {
+    const d = new Date(raw.length === 10 ? `${raw}T00:00:00+09:00` : raw);
+    if (!Number.isNaN(d.getTime())) return d.toISOString();
+  }
+  return new Date().toISOString();
 }
 
 function pickNumber(obj: Record<string, unknown>, keys: string[]): number | null {

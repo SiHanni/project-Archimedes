@@ -134,10 +134,18 @@ services:
       <<: *app_db
       PORT: 3000
       # 시세·견적 (계획서 Step 2-1). 로컬 기본은 고정 표 — 항상 stale 로 표시된다.
+      #
+      # 금 기준값은 **팔 때(매입) 시세** 2026-08-05: 1돈 688,000 원 → g당 183,467.
+      # 나머지 함량은 순도비(24k=999 기준)로 환산한 근사다.
+      # 은·백금은 근거 있는 값이 없어 **일부러 비워 둔다** — 표에 없으면 견적을
+      # 아예 안 내므로, 지어낸 숫자를 견적으로 보여 주는 일이 없다.
       PRICE_BACKEND: ${PRICE_BACKEND:-static}
-      PRICE_TABLE_KRW_PER_GRAM: ${PRICE_TABLE_KRW_PER_GRAM:-{"gold:24k":118000,"gold:18k":86000,"gold:14k":66000,"silver:sterling":1400,"platinum:pt950":52000}}
+      PRICE_TABLE_KRW_PER_GRAM: ${PRICE_TABLE_KRW_PER_GRAM:-{"gold:24k":183467,"gold:22k":168224,"gold:18k":137738,"gold:14k":107436,"gold:10k":76582}}
+      # 고정 표가 **언제 기준인지**. 없으면 조회 시각을 쓰게 되어 오늘 시세인 척한다.
+      PRICE_TABLE_AS_OF: ${PRICE_TABLE_AS_OF:-2026-08-05}
       PRICE_API_URL: ${PRICE_API_URL:-}
       PRICE_API_KEY: ${PRICE_API_KEY:-}
+      # 입력값이 이미 '팔 때' 시세라 추가 매입률을 곱하지 않는다
       PRICE_BUY_RATE: ${PRICE_BUY_RATE:-1}
     depends_on:
       mysql:

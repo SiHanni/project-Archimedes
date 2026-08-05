@@ -131,6 +131,25 @@ export function isQuoteSuppressed(
   return (q as { suppressed?: boolean }).suppressed === true;
 }
 
+/** worker `visualize` — 오토 라벨링·검수 산출물 */
+export type JobSegmentationMeta = {
+  backend?: string;
+  placement_mode?: string;
+  object_side?: string;
+  area_frac?: number;
+  /** 이미지 없이도 라벨로 쓸 수 있는 픽셀 좌표 폴리곤 */
+  polygon_xy?: number[][];
+  polygon_points?: number;
+  image_width?: number;
+  image_height?: number;
+  assets?: string[];
+};
+
+/** 세그 산출물은 API 가 S3 를 프록시해 준다 */
+export function assetUrl(jobId: string, name: string): string {
+  return `${apiBase}/jobs/${jobId}/assets/${name}`;
+}
+
 export type JobDto = {
   id: string;
   status: string;
@@ -151,6 +170,7 @@ export type JobDto = {
     meta?: {
       capture_mode?: string;
       sanity?: JobSanityMeta;
+      segmentation?: JobSegmentationMeta;
       workflow?: JobWorkflowMeta;
       scale_fusion?: JobScaleFusionMeta;
       reconstruction?: JobReconstructionMeta;

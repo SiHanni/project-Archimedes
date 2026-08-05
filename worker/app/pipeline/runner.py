@@ -46,6 +46,8 @@ from app.pipeline.quality_gate import check_image_quality
 from app.pipeline.reconstruct import reconstruct_from_depth
 from app.pipeline.scale_fusion import fuse_scale
 from app.pipeline.segment import build_jewel_mask
+from app.pipeline.visualize import build_assets
+from app.s3util import upload_object
 
 log = logging.getLogger(__name__)
 
@@ -309,6 +311,7 @@ def _run_single(
                 K,
                 card,
                 depth_rmse_mm=fusion.depth_rmse_mm,
+                side=settings.object_side,
             )
         except PipelineError as e:
             log.info("height segmentation failed (%s), falling back to appearance", e.code)
@@ -324,7 +327,9 @@ def _run_single(
         det_meta["backend"] = detector.name
         segmenter = get_segmenter(settings)
         seg = segmenter.segment(bgr, box)
-        mask, mask_meta = refine_jewel_mask(seg.mask, card, SINGLE_VIEW_KEY)
+        mask, mask_meta = refine_jewel_mask(
+            seg.mask, card, SINGLE_VIEW_KEY, side=settings.object_side
+        )
         mask_meta["backend"] = segmenter.name
 
     rec = reconstruct_from_depth(
@@ -336,6 +341,25 @@ def _run_single(
         valid=dmap.valid_mask(),
         thickness_override_mm=inp.reference_thickness_mm,
     )
+
+    # 평가·오토라벨링 산출물 (계획서 Step 1): 누끼 오버레이 · 마스크 · 폴리곤
+    seg_assets_meta: dict[str, Any] = {}
+    if settings.save_segmentation_assets:
+        try:
+            assets = build_assets(bgr, mask, card.quad_px if card else None)
+            seg_assets_meta = assets.as_meta()
+            prefix = f"segmentation/{job_id}"
+            for name, payload, ctype in (
+                ("overlay.jpg", assets.overlay_jpg, "image/jpeg"),
+                ("mask.png", assets.mask_png, "image/png"),
+                ("cutout.png", assets.cutout_png, "image/png"),
+            ):
+                upload_object(settings, f"{prefix}/{name}", payload, ctype)
+            seg_assets_meta["assets"] = ["overlay.jpg", "mask.png", "cutout.png"]
+        except Exception as e:  # noqa: BLE001
+            # 산출물 저장 실패가 분석 실패가 되면 안 된다
+            log.warning("segmentation assets failed: %s", e)
+            seg_assets_meta = {"error": str(e)[:200]}
 
     V_adj, alpha_k, beta_k = hollow.adjusted_volume_depth_mm3(rec.volume_mm3, inp.product_k)
     mass = hollow.mass_g(V_adj, inp.metal, inp.purity)
@@ -517,7 +541,7 @@ def _run_single(
             "volume_model": rec.method,
             "camera": K.as_meta(),
             "detection": det_meta,
-            "segmentation": mask_meta,
+            "segmentation": {**mask_meta, **seg_assets_meta},
             "depth": {"backend": dmap.meta.get("backend"), "kind": dmap.kind.value},
             "scale_fusion": fusion.as_meta(),
             "reconstruction": rec.as_meta(),

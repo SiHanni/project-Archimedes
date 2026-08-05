@@ -47,15 +47,41 @@ def card_masks(card: CardGeometry, shape: tuple[int, int]) -> tuple[np.ndarray, 
     return dilated, inner
 
 
-def card_roi_mask(card: CardGeometry, shape: tuple[int, int], spans: float = 1.0) -> np.ndarray:
-    """카드 중심에서 카드 긴 변의 `spans` 배 안쪽 영역."""
+def card_roi_mask(
+    card: CardGeometry,
+    shape: tuple[int, int],
+    spans: float = 1.0,
+    side: str = "any",
+) -> np.ndarray:
+    """
+    카드 중심에서 카드 긴 변의 `spans` 배 안쪽 영역.
+
+    `side` 가 "left"/"right" 면 **카드 기준 그쪽 절반만** 남긴다.
+    촬영 규약으로 배치를 고정하면 탐색 영역이 절반으로 줄어 오검출이 크게 준다.
+    좌우 판정은 이미지 x 축이 아니라 **카드의 긴 변 방향**을 기준으로 한다
+    (카드가 기울어 찍혀도 규약이 성립하도록).
+    """
     h, w = shape[:2]
-    cx = float(card.quad_px[:, 0].mean())
-    cy = float(card.quad_px[:, 1].mean())
+    q = np.asarray(card.quad_px, dtype=np.float64).reshape(4, 2)
+    cx, cy = float(q[:, 0].mean()), float(q[:, 1].mean())
     long_px, _ = card_edge_lengths_px(card.quad_px)
+
     roi = np.zeros((h, w), dtype=np.uint8)
     cv2.circle(roi, (round(cx), round(cy)), round(long_px * spans), 255, -1)
-    return roi
+    if side not in ("left", "right"):
+        return roi
+
+    # 카드의 긴 변 방향 단위벡터. 이미지 좌표에서 +x 쪽이 "오른쪽"이 되도록 맞춘다.
+    e_a, e_b = q[1] - q[0], q[2] - q[1]
+    axis = e_a if np.linalg.norm(e_a) >= np.linalg.norm(e_b) else e_b
+    if axis[0] < 0:
+        axis = -axis
+    axis = axis / max(float(np.linalg.norm(axis)), 1e-9)
+
+    ys, xs = np.mgrid[0:h, 0:w]
+    proj = (xs - cx) * axis[0] + (ys - cy) * axis[1]
+    keep = proj < 0 if side == "left" else proj > 0
+    return cv2.bitwise_and(roi, (keep.astype(np.uint8)) * 255)
 
 
 def refine_jewel_mask(
@@ -64,6 +90,7 @@ def refine_jewel_mask(
     view: str = "front",
     *,
     roi_card_spans: float = 1.0,
+    side: str = "any",
 ) -> tuple[np.ndarray, dict[str, object]]:
     """
     전경에서 귀금속 마스크를 뽑는다.
@@ -81,7 +108,7 @@ def refine_jewel_mask(
         _validate(frac, view, "no_card")
         return mask, {"placement_mode": "no_card", "area_frac": round(frac, 6)}
 
-    roi = card_roi_mask(card, fg.shape, roi_card_spans)
+    roi = card_roi_mask(card, fg.shape, roi_card_spans, side)
     fg = cv2.bitwise_and(fg, roi)
 
     dilated, inner = card_masks(card, fg.shape)
@@ -122,6 +149,7 @@ def refine_jewel_mask(
         "placement_mode": mode,
         "area_frac": round(frac, 6),
         "roi_card_spans": roi_card_spans,
+        "object_side": side,
     }
 
 

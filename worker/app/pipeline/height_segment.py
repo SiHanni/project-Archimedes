@@ -62,6 +62,7 @@ def segment_by_height(
     max_height_mm: float = DEFAULT_MAX_HEIGHT_MM,
     roi_card_spans: float = DEFAULT_ROI_CARD_SPANS,
     depth_rmse_mm: float | None = None,
+    side: str = "any",
 ) -> tuple[np.ndarray, dict[str, Any]]:
     """
     Returns (mask, meta). 카드 근처에서 바닥 위로 솟은 **최대 연결성분**.
@@ -80,6 +81,16 @@ def segment_by_height(
     long_px, _ = card_edge_lengths_px(card.quad_px)
     ys, xs = np.mgrid[0:h, 0:w]
     roi = np.hypot(xs - cx, ys - cy) < long_px * roi_card_spans
+    if side in ("left", "right"):
+        # 촬영 규약대로 카드 한쪽만 본다 — 반대편 잡동사니가 원천 배제된다
+        q = np.asarray(card.quad_px, dtype=np.float64).reshape(4, 2)
+        e_a, e_b = q[1] - q[0], q[2] - q[1]
+        axis = e_a if np.linalg.norm(e_a) >= np.linalg.norm(e_b) else e_b
+        if axis[0] < 0:
+            axis = -axis
+        axis = axis / max(float(np.linalg.norm(axis)), 1e-9)
+        proj = (xs - cx) * axis[0] + (ys - cy) * axis[1]
+        roi &= (proj < 0) if side == "left" else (proj > 0)
 
     raised = np.isfinite(height) & (height > min_height_mm) & (height < max_height_mm)
     mask = ((roi & raised).astype(np.uint8)) * 255
@@ -125,5 +136,6 @@ def segment_by_height(
         "area_frac": round(frac, 6),
         "median_height_mm": round(med_h, 3),
         "roi_card_spans": roi_card_spans,
+        "object_side": side,
         "height_band_mm": [min_height_mm, max_height_mm],
     }

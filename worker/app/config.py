@@ -86,6 +86,14 @@ class Settings(BaseSettings):
     )
     # 1이면 앵커(카드) 없는 job 을 ERR_SCALE_UNRESOLVED 로 거절
     require_anchor: bool = Field(default=False, validation_alias="ARCHIMEDES_REQUIRE_ANCHOR")
+    # 촬영 규약: 귀금속을 카드의 어느 쪽에 두는가.
+    # 배치를 고정하면 탐색 영역이 절반으로 줄어 오검출이 크게 준다(§4).
+    # "any" 는 규약을 강제하지 않는 완화 모드.
+    object_side: str = Field(default="left", validation_alias="ARCHIMEDES_OBJECT_SIDE")
+    # 세그 산출물(오버레이·마스크·누끼)을 S3 에 저장할지 — 평가·오토라벨링용
+    save_segmentation_assets: bool = Field(
+        default=True, validation_alias="ARCHIMEDES_SAVE_SEG_ASSETS"
+    )
     # 홀드아웃 depth RMSE / 카드 거리 가 이 비율을 넘으면 신뢰도 감점.
     # 길이 오차는 부피에서 3배가 되므로 1% 면 부피 3% — 이 정도를 경계로 둔다.
     depth_rmse_penalty_ratio: float = Field(
@@ -104,6 +112,7 @@ class Settings(BaseSettings):
         "reject_jewel_on_card",
         "depth_output_inverse",
         "require_anchor",
+        "save_segmentation_assets",
         mode="before",
     )
     @classmethod

@@ -17,10 +17,11 @@ from app.models.schemas import JobInputRecord
 from app.pipeline.runner import run_pipeline
 
 IMG = 2048
-# ID-1 종횡비(1.586)에 맞춘 축정렬 카드 — PnP 가 정면 평면을 얻어 결정론적으로 만든다
-CARD_X0, CARD_Y0, CARD_W = 420, 700, 960
+# ID-1 종횡비(1.586)에 맞춘 축정렬 카드 — PnP 가 정면 평면을 얻어 결정론적으로 만든다.
+# 배치는 촬영 규약과 동일하게 **카드 오른쪽 · 귀금속 왼쪽**(ARCHIMEDES_OBJECT_SIDE=left).
+CARD_X0, CARD_Y0, CARD_W = 900, 700, 960
 CARD_H = round(CARD_W * 53.98 / 85.60)
-JEWEL_CX, JEWEL_CY, JEWEL_R = 1650, 1000, 110
+JEWEL_CX, JEWEL_CY, JEWEL_R = 520, 1000, 110
 
 
 def _scene_jpeg() -> bytes:
@@ -41,6 +42,9 @@ def single_settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
     monkeypatch.setenv("ARCHIMEDES_DETECTOR_BACKEND", "stub")
     monkeypatch.setenv("ARCHIMEDES_SEGMENTATION_BACKEND", "heuristic")
     monkeypatch.setenv("ARCHIMEDES_DEPTH_BACKEND", "stub")
+    # 산출물 인코딩(풀해상도 PNG)은 무겁다 — 여기서는 파이프라인 로직만 본다.
+    # 산출물 자체는 test_visualize.py 가 따로 검증한다.
+    monkeypatch.setenv("ARCHIMEDES_SAVE_SEG_ASSETS", "0")
     return Settings()
 
 

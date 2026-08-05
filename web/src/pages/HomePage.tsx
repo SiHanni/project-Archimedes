@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { getJob, isQuoteSuppressed, postJob, type JobDto } from '../api';
+import { assetUrl, getJob, isQuoteSuppressed, postJob, type JobDto } from '../api';
 import { CaptureGuide } from '../components/CaptureGuide';
 
 const VIEWS = ['front', 'top', 'left', 'right', 'back'] as const;
@@ -211,6 +211,7 @@ export function HomePage() {
   const sanity = job?.result?.meta?.sanity;
   const fusion = job?.result?.meta?.scale_fusion;
   const recon = job?.result?.meta?.reconstruction;
+  const seg = job?.result?.meta?.segmentation;
   const quote = job?.quote ?? null;
   const won = (v: number) => v.toLocaleString('ko-KR');
   const massG = job?.result?.mass_est_g;
@@ -518,6 +519,31 @@ export function HomePage() {
                 {!hideMass ? `V_hull=${job.result.V_hull_mm3} mm³, V_adj=${job.result.V_adj_mm3} mm³, ` : ''}
                 {job.result.algorithm_version ?? job.algorithmVersion ?? ''}
               </p>
+              {seg?.assets?.includes('overlay.jpg') && job.id ? (
+                <div style={{ marginTop: '0.75rem' }}>
+                  <p className="notice__title" style={{ marginBottom: '0.35rem' }}>
+                    인식한 귀금속 영역
+                  </p>
+                  <img
+                    src={assetUrl(job.id, 'overlay.jpg')}
+                    alt="귀금속 영역을 표시한 이미지"
+                    style={{ width: '100%', borderRadius: 8, display: 'block' }}
+                  />
+                  <p className="text-small" style={{ margin: '0.35rem 0 0' }}>
+                    노란 외곽선이 무게 계산에 쓴 영역입니다. 물체와 다르면 다시 촬영해 주세요.
+                    {seg.polygon_points ? ` (윤곽점 ${seg.polygon_points}개)` : ''}
+                  </p>
+                  <p className="text-small" style={{ margin: '0.25rem 0 0' }}>
+                    <a href={assetUrl(job.id, 'cutout.png')} target="_blank" rel="noreferrer">
+                      누끼 PNG
+                    </a>
+                    {' · '}
+                    <a href={assetUrl(job.id, 'mask.png')} target="_blank" rel="noreferrer">
+                      마스크 PNG
+                    </a>
+                  </p>
+                </div>
+              ) : null}
               {fusion || recon ? (
                 <div className="notice notice--slate" style={{ marginTop: '0.75rem' }}>
                   <p className="notice__title">측정값</p>

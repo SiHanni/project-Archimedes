@@ -5,7 +5,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { createPool, Pool, RowDataPacket } from 'mysql2/promise';
 import Redis from 'ioredis';
 import { v4 as uuidv4 } from 'uuid';
@@ -241,6 +241,23 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       spot,
       this.pricing.buyRate,
     );
+  }
+
+  /** 세그 산출물을 S3 에서 읽어 바이트로 돌려준다. 없으면 null. */
+  async readSegmentationAsset(jobId: string, name: string): Promise<Buffer | null> {
+    try {
+      const out = await this.s3.send(
+        new GetObjectCommand({
+          Bucket: this.bucket,
+          Key: `segmentation/${jobId}/${name}`,
+        }),
+      );
+      const bytes = await out.Body?.transformToByteArray();
+      return bytes ? Buffer.from(bytes) : null;
+    } catch {
+      // 아직 생성 전이거나 저장이 꺼져 있는 경우 — 404 로 다룬다
+      return null;
+    }
   }
 
   async upsertMassFeedback(jobId: string, actualMassG: number, notes: string | null) {

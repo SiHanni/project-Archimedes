@@ -39,11 +39,11 @@ export function CaptureGuide({ compact = false }: Props) {
           사진 프레임
         </text>
 
-        {/* 권장 영역 — worker ROI 와 같은 반경 */}
-        <circle
-          cx={CARD_CX} cy={CARD_CY} r={ROI_R}
-          fill="#22c55e" fillOpacity="0.10"
-          stroke="#22c55e" strokeOpacity="0.55" strokeWidth="1.5" strokeDasharray="5 4"
+        {/* 권장 영역 — worker ROI(카드 긴 변 1배, **카드 왼쪽 절반**)와 같은 정의 */}
+        <path
+          d={`M ${CARD_CX} ${CARD_CY - ROI_R} A ${ROI_R} ${ROI_R} 0 0 0 ${CARD_CX} ${CARD_CY + ROI_R} Z`}
+          fill="#22c55e" fillOpacity="0.12"
+          stroke="#22c55e" strokeOpacity="0.6" strokeWidth="1.5" strokeDasharray="5 4"
         />
 
         {/* 카드 */}
@@ -71,11 +71,15 @@ export function CaptureGuide({ compact = false }: Props) {
         </text>
 
         <text x={CARD_CX} y={CARD_CY + ROI_R + 16} fontSize="10" textAnchor="middle" fill="#15803d">
-          이 원 안에 두세요
+          귀금속은 카드 왼쪽, 이 반원 안에
         </text>
       </svg>
 
       <ul style={{ margin: '0.25rem 0 0', paddingLeft: '1.15rem' }}>
+        <li>
+          <strong>귀금속은 왼쪽, 카드는 오른쪽</strong>에 두세요. 이 배치를 지키면 탐색 영역이
+          절반으로 줄어 훨씬 정확하게 찾습니다.
+        </li>
         <li>
           귀금속을 <strong>카드 바로 옆</strong>에 붙여 두세요. 카드에서 멀면 찾지 못합니다.
         </li>

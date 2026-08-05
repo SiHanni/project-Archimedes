@@ -29,6 +29,7 @@ from app.constants import CARD_DILATE_PX, JEWEL_AREA_FRAC_MAX, JEWEL_AREA_FRAC_M
 from app.pipeline.camera import Intrinsics
 from app.pipeline.card import CardGeometry, card_edge_lengths_px
 from app.pipeline.exceptions import PipelineError
+from app.pipeline.jewel_mask import side_bias
 from app.pipeline.reconstruct import SupportPlane
 
 log = logging.getLogger(__name__)
@@ -80,17 +81,10 @@ def segment_by_height(
     cy = float(card.quad_px[:, 1].mean())
     long_px, _ = card_edge_lengths_px(card.quad_px)
     ys, xs = np.mgrid[0:h, 0:w]
+    # 카드를 둘러싼 **전 방향**. 예전에는 규약대로 한쪽 반원만 봤는데, 실사진은
+    # 그렇게 안 찍힌다 — 실측 real5.jpg 는 금괴가 카드 아래에 놓여 통째로 ROI
+    # 밖이었고, 대신 카드 인쇄물이 물체로 잡혔다. 규약은 아래에서 **가점**으로만 쓴다.
     roi = np.hypot(xs - cx, ys - cy) < long_px * roi_card_spans
-    if side in ("left", "right"):
-        # 촬영 규약대로 카드 한쪽만 본다 — 반대편 잡동사니가 원천 배제된다
-        q = np.asarray(card.quad_px, dtype=np.float64).reshape(4, 2)
-        e_a, e_b = q[1] - q[0], q[2] - q[1]
-        axis = e_a if np.linalg.norm(e_a) >= np.linalg.norm(e_b) else e_b
-        if axis[0] < 0:
-            axis = -axis
-        axis = axis / max(float(np.linalg.norm(axis)), 1e-9)
-        proj = (xs - cx) * axis[0] + (ys - cy) * axis[1]
-        roi &= (proj < 0) if side == "left" else (proj > 0)
 
     raised = np.isfinite(height) & (height > min_height_mm) & (height < max_height_mm)
     mask = ((roi & raised).astype(np.uint8)) * 255
@@ -105,8 +99,9 @@ def segment_by_height(
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
 
-    # 최대 연결성분만 — 그림자 얼룩·노이즈 조각 제거
-    n, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    # 연결성분 하나만 — 그림자 얼룩·노이즈 조각 제거.
+    # 규약대로 놓인 쪽에 가점을 주되, 어긴 배치도 버리지 않고 감점만 한다.
+    n, labels, stats, centroids = cv2.connectedComponentsWithStats(mask, connectivity=8)
     if n <= 1:
         raise PipelineError(
             "ERR_SILHOUETTE_AREA",
@@ -115,8 +110,13 @@ def segment_by_height(
             error_severity="soft",
             suggested_action="retake_photo",
         )
-    biggest = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
-    mask = ((labels == biggest).astype(np.uint8)) * 255
+    scores = [
+        float(stats[i, cv2.CC_STAT_AREA])
+        * side_bias(card, float(centroids[i][0]), float(centroids[i][1]), side)
+        for i in range(1, n)
+    ]
+    best = 1 + int(np.argmax(scores))
+    mask = ((labels == best).astype(np.uint8)) * 255
 
     frac = float(np.count_nonzero(mask)) / float(h * w)
     if not (JEWEL_AREA_FRAC_MIN <= frac <= JEWEL_AREA_FRAC_MAX):

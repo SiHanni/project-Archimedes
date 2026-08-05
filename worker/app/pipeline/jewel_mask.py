@@ -54,12 +54,15 @@ def card_roi_mask(
     side: str = "any",
 ) -> np.ndarray:
     """
-    카드 중심에서 카드 긴 변의 `spans` 배 안쪽 영역.
+    카드 중심에서 카드 긴 변의 `spans` 배 안쪽 영역 — **카드를 둘러싼 전 방향**.
 
-    `side` 가 "left"/"right" 면 **카드 기준 그쪽 절반만** 남긴다.
-    촬영 규약으로 배치를 고정하면 탐색 영역이 절반으로 줄어 오검출이 크게 준다.
-    좌우 판정은 이미지 x 축이 아니라 **카드의 긴 변 방향**을 기준으로 한다
-    (카드가 기울어 찍혀도 규약이 성립하도록).
+    ⚠️ 예전에는 `side` 로 카드 기준 **반쪽만** 남겼다. 촬영 규약("귀금속 왼쪽,
+    카드 오른쪽")을 코드로 강제한 것인데, 실사진은 그렇게 안 찍힌다 — 실측
+    real5.jpg 에서 도련님은 금괴를 카드 **아래**에 놓으셨고, 물체가 통째로 ROI
+    밖이라 대신 카드 인쇄물이 잡혔다. 규약을 어겼다고 분석을 실패시킬 이유가 없다.
+
+    지금은 반경으로만 자르고(=책상 위 키보드·모니터는 여전히 배제),
+    `side` 는 후보가 여럿일 때의 **가점**으로만 쓴다(`side_bias`).
     """
     h, w = shape[:2]
     q = np.asarray(card.quad_px, dtype=np.float64).reshape(4, 2)
@@ -68,20 +71,33 @@ def card_roi_mask(
 
     roi = np.zeros((h, w), dtype=np.uint8)
     cv2.circle(roi, (round(cx), round(cy)), round(long_px * spans), 255, -1)
-    if side not in ("left", "right"):
-        return roi
+    return roi
 
-    # 카드의 긴 변 방향 단위벡터. 이미지 좌표에서 +x 쪽이 "오른쪽"이 되도록 맞춘다.
+
+def card_long_axis(card: CardGeometry) -> np.ndarray:
+    """카드 긴 변 방향 단위벡터. 이미지 좌표에서 +x 쪽이 '오른쪽'이 되게 맞춘다."""
+    q = np.asarray(card.quad_px, dtype=np.float64).reshape(4, 2)
     e_a, e_b = q[1] - q[0], q[2] - q[1]
     axis = e_a if np.linalg.norm(e_a) >= np.linalg.norm(e_b) else e_b
     if axis[0] < 0:
         axis = -axis
-    axis = axis / max(float(np.linalg.norm(axis)), 1e-9)
+    return axis / max(float(np.linalg.norm(axis)), 1e-9)
 
-    ys, xs = np.mgrid[0:h, 0:w]
-    proj = (xs - cx) * axis[0] + (ys - cy) * axis[1]
-    keep = proj < 0 if side == "left" else proj > 0
-    return cv2.bitwise_and(roi, (keep.astype(np.uint8)) * 255)
+
+def side_bias(card: CardGeometry, cx: float, cy: float, side: str) -> float:
+    """
+    규약대로 놓였으면 1.0, 반대편이면 0.6. **떨어뜨리지는 않는다.**
+
+    좌우 판정은 이미지 x 축이 아니라 카드의 긴 변 방향 기준이다
+    (카드가 기울어 찍혀도 규약이 성립하도록).
+    """
+    if side not in ("left", "right"):
+        return 1.0
+    q = np.asarray(card.quad_px, dtype=np.float64).reshape(4, 2)
+    axis = card_long_axis(card)
+    proj = (cx - float(q[:, 0].mean())) * axis[0] + (cy - float(q[:, 1].mean())) * axis[1]
+    on_expected = proj < 0 if side == "left" else proj > 0
+    return 1.0 if on_expected else 0.6
 
 
 def refine_jewel_mask(
@@ -137,11 +153,18 @@ def refine_jewel_mask(
     by_mode = {c[0]: c for c in valid}
     mode, mask, frac = by_mode.get("beside_card") or min(valid, key=lambda c: c[2])
 
-    # 카드 근처 최대 연결성분만 — 그림자·반사 조각 제거
-    n, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    # 카드 근처 연결성분 하나만 — 그림자·반사 조각 제거.
+    # 면적이 가장 큰 것을 쓰되, 촬영 규약대로 놓인 쪽에 가점을 준다. 규약을
+    # 어긴 배치도 **버리지 않고 감점만** 한다(실측: 금괴가 카드 아래에 놓였다).
+    n, labels, stats, centroids = cv2.connectedComponentsWithStats(mask, connectivity=8)
     if n > 1:
-        biggest = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
-        mask = ((labels == biggest).astype(np.uint8)) * 255
+        scores = [
+            float(stats[i, cv2.CC_STAT_AREA])
+            * side_bias(card, float(centroids[i][0]), float(centroids[i][1]), side)
+            for i in range(1, n)
+        ]
+        best = 1 + int(np.argmax(scores))
+        mask = ((labels == best).astype(np.uint8)) * 255
         frac = _area_frac(mask)
 
     log.info("jewel mask mode=%s frac=%.5f view=%s", mode, frac, view)

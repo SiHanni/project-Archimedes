@@ -157,6 +157,76 @@ def focal_from_rectangle_quad(
     return f
 
 
+def implied_rectangle_aspect(
+    quad_px, width_px: int, height_px: int, focal_px_hint: float | None = None
+) -> tuple[float | None, float | None]:
+    """
+    쿼드가 **실제로는 어떤 비율의 직사각형인지** 역산한다 (Zhang & He, 2003).
+
+    반환: `(종횡비, 풀린 초점거리 or None)`. 종횡비는 항상 ≥ 1 (긴 변/짧은 변).
+
+    왜 필요한가: 사진 속 겉보기 종횡비는 원근에 속는다. 실측(도련님 real5.jpg)에서
+    신용카드는 낮은 각도로 찍혀 **겉보기 1.095** 로 눌렸고, 그 값이 카드 판정
+    범위(1.25~2.05) 밖이라 카드가 후보에서 통째로 탈락했다. 그 결과 카드 인쇄물의
+    **핑크색 절반**이 카드로 잡혀 스케일이 어긋났다.
+
+    같은 사진에서 이 함수는 카드를 **1.676**(정답 1.586), 골드바를 **2.156** 으로
+    역산한다. 겉보기로는 못 가르는 둘이 깨끗하게 갈린다.
+
+    원리: 직사각형 네 꼭짓점 m1..m4 에서 소실점 방향 벡터 n2, n3 를 만들면
+    두 방향은 3D 에서 직교하므로 f 가 풀리고, 같은 n2·n3 의 K⁻ᵀK⁻¹ 노름 비가
+    변의 실제 길이 비가 된다.
+
+    ⚠️ `cv2.minAreaRect` 로 만든 상자를 넣으면 안 된다. 정의상 축정렬 직사각형이라
+    원근 정보가 지워져 겉보기 비율이 그대로 나온다(실측으로 확인).
+    """
+    q = np.asarray(quad_px, dtype=np.float64).reshape(4, 2)
+    # 순환순서 q0,q1,q2,q3 → Zhang 대응 m1=(0,0) m2=(1,0) m3=(0,1) m4=(1,1)
+    m1 = np.array([q[0][0], q[0][1], 1.0])
+    m2 = np.array([q[1][0], q[1][1], 1.0])
+    m3 = np.array([q[3][0], q[3][1], 1.0])
+    m4 = np.array([q[2][0], q[2][1], 1.0])
+
+    d2 = float(np.dot(np.cross(m2, m4), m3))
+    d3 = float(np.dot(np.cross(m3, m4), m2))
+    if abs(d2) < 1e-9 or abs(d3) < 1e-9:
+        return None, None
+    n2 = (float(np.dot(np.cross(m1, m4), m3)) / d2) * m2 - m1
+    n3 = (float(np.dot(np.cross(m1, m4), m2)) / d3) * m3 - m1
+
+    u0, v0 = _principal_point(width_px, height_px)
+    span = float(max(width_px, height_px))
+
+    f_solved: float | None = None
+    den = float(n2[2] * n3[2])
+    if abs(den) > 1e-6:
+        f_sq = -(
+            (n2[0] - n2[2] * u0) * (n3[0] - n3[2] * u0)
+            + (n2[1] - n2[2] * v0) * (n3[1] - n3[2] * v0)
+        ) / den
+        if math.isfinite(f_sq) and f_sq > 0:
+            cand = math.sqrt(f_sq)
+            # 소비자 폰에서 물리적으로 말이 되는 범위만 신뢰
+            if 0.25 * span <= cand <= 6.0 * span:
+                f_solved = cand
+
+    # 카드가 정면에 가까우면 f 가 안 풀린다(소실점이 무한대). 이때도 비율은
+    # 필요하므로 힌트 f 를 쓴다 — 정면일수록 f 오차가 비율에 덜 영향을 준다.
+    f_use = f_solved if f_solved is not None else (focal_px_hint or 1.15 * span)
+    if f_use <= 0:
+        return None, f_solved
+    A_inv = np.array([[1.0 / f_use, 0.0, -u0 / f_use], [0.0, 1.0 / f_use, -v0 / f_use], [0.0, 0.0, 1.0]])
+    M = A_inv.T @ A_inv
+    num = float(n2 @ M @ n2)
+    den2 = float(n3 @ M @ n3)
+    if num <= 1e-12 or den2 <= 1e-12:
+        return None, f_solved
+    aspect = math.sqrt(num / den2)
+    if not math.isfinite(aspect) or aspect <= 0:
+        return None, f_solved
+    return (aspect if aspect >= 1.0 else 1.0 / aspect), f_solved
+
+
 def intrinsics_from_card(
     exif: dict[str, Any] | None, quad_px, width_px: int, height_px: int
 ) -> Intrinsics:

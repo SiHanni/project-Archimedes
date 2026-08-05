@@ -13,6 +13,7 @@ import logging
 import statistics
 from typing import Any
 
+import cv2
 import numpy as np
 
 from app.config import Settings
@@ -46,7 +47,8 @@ from app.pipeline.exceptions import PipelineError
 from app.pipeline.geometry_g1 import jewel_bbox_uv_mm
 from app.pipeline.height_segment import segment_by_height
 from app.pipeline.ingest import bytes_to_bgr, collect_exif
-from app.pipeline.jewel_mask import refine_jewel_mask
+from app.pipeline.jewel_mask import card_roi_mask, refine_jewel_mask
+from app.pipeline.matting import refine_with_grabcut
 from app.pipeline.ocr import LabelReading, read_label
 from app.pipeline.quality_gate import check_image_quality
 from app.pipeline.reconstruct import reconstruct_from_depth
@@ -64,6 +66,10 @@ SINGLE_VIEW_KEY = "front"
 # 순금이라면 두 값이 비슷해야 하고, 우리 부피 오차(§15.1 σ≈0.5)를 감안해도
 # 3배를 넘기 어렵다.
 SOLID_GOLD_RATIO_THRESHOLD = 3.0
+
+# 누끼 정밀화가 넘어가면 안 되는 반경(카드 긴 변의 배수). 물체 탐색 ROI 보다
+# 넉넉해야 물체 전체를 덮을 수 있고, 그래도 책상 전체를 먹지는 못한다.
+MATTING_ROI_SPANS = 2.0
 
 
 def _sanity_mass_cap_g(product_k: str, settings: Settings) -> float:
@@ -279,7 +285,7 @@ def _run_single(
     h, w = bgr.shape[:2]
 
     # 카드는 v2 에서 **선택적 앵커** — 없으면 깊이 단독 경로로 간다
-    card = try_compute_card_geometry(bgr, SINGLE_VIEW_KEY, settings)
+    card = try_compute_card_geometry(bgr, SINGLE_VIEW_KEY, settings, exif)
 
     # EXIF 에 초점거리가 없는 사진이 흔하다(실측: 도련님 사진 2장 모두 없음).
     # 그때 1.15·max(W,H) 로 추측하면 최대 46% 틀리고, 그 오차가 두께 →
@@ -346,6 +352,22 @@ def _run_single(
             seg.mask, card, SINGLE_VIEW_KEY, side=settings.object_side
         )
         mask_meta["backend"] = segmenter.name
+
+        # 외형 경로의 Otsu 는 금의 **반사로 빛나는 일부만** 잡는다(실측: 금괴
+        # 상단 40%). 씨앗의 색 분포를 학습해 나머지를 끌어온다 — 누끼 품질이
+        # 곧 계획서 Step 1 의 산출물이므로 여기서 한 번 정밀화한다.
+        # 카드 자신과 **카드에서 너무 먼 곳**은 확정 배경으로 못박는다. 안 그러면
+        # 색이 비슷한 책상이 통째로 딸려 온다(실측: 성장 6.3배, 231×182mm).
+        # 반경은 탐색 ROI(카드 긴 변 1배)보다 넉넉히 잡는다 — 같은 반경을 쓰면
+        # 물체 자체가 잘려 정밀화가 아무 일도 못 한다(실측: 성장 1.0배로 무력화).
+        exclude = None
+        if card is not None:
+            exclude = cv2.bitwise_not(card_roi_mask(card, mask.shape, MATTING_ROI_SPANS))
+            cv2.fillPoly(exclude, [np.asarray(card.quad_px, dtype=np.int32)], 255)
+        mask, matte_meta = refine_with_grabcut(bgr, mask, exclude=exclude)
+        mask_meta.update(matte_meta)
+        # 정밀화로 마스크가 바뀌었으니 면적도 다시 적는다 — meta 는 실제로 쓴 마스크를 말해야 한다
+        mask_meta["area_frac"] = round(float(np.count_nonzero(mask)) / float(h * w), 6)
 
     rec = reconstruct_from_depth(
         mask,
@@ -634,7 +656,7 @@ def _run_multiview(
         # EXIF orientation 을 화소에 반영해야 뷰↔월드 축 매핑이 성립한다(v2 §0.4 #4)
         bgr = bytes_to_bgr(raw, exif_meta[view].get("orientation"))
         check_image_quality(bgr, settings, view)
-        card = compute_card_geometry(bgr, view, settings)
+        card = compute_card_geometry(bgr, view, settings, exif_meta[view])
         cards[view] = card
         sigmas[view] = card.sigma_mm_per_px
         mask, seg_meta = build_jewel_mask(bgr, card, settings, view, job_id=job_id)

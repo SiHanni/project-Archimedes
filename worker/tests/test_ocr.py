@@ -117,3 +117,45 @@ def test_full_reading_still_wins_on_confidence_when_no_fragment():
     r = parse_label([("3.75g", 0.6), ("1.2 g", 0.95)])
     assert r.weight_g == 1.2
     assert r.weight_source_text == "1.2 g"
+
+
+def test_truncated_decimal_is_rejected_when_alone():
+    """
+    온전한 판독이 없어도 조각을 그냥 쓰면 안 된다.
+
+    "05g" 는 소수점을 놓친 조각인데 무엇이 떨어졌는지 알 수 없다
+    ("0.05" 일 수도 "0.5" 일 수도 있다). 복원하지 말고 버린다 —
+    100배 틀린 값보다 "못 읽음"이 낫다.
+    """
+    from app.pipeline.ocr import parse_label
+
+    assert parse_label([("05g", 0.99), ("999", 0.9)]).weight_g is None
+    assert parse_label([("005 g", 0.99)]).weight_g is None
+    # 정상 표기는 영향 없어야 한다
+    assert parse_label([("5g", 0.9)]).weight_g == 5.0
+    assert parse_label([("0.5g", 0.9)]).weight_g == 0.5
+
+
+def test_rotations_are_judged_together_not_per_rotation():
+    """
+    회전별로 따로 뽑아 신뢰도로 고르면 조각 필터가 무력해진다.
+
+    실측: 한 방향은 "05g"(0.988), 다른 방향은 "0.05g" 를 냈는데 방향별 최고를
+    고르는 바람에 5 g 이 채택됐다.
+    """
+    from app.pipeline.ocr import read_label
+
+    class TwoFaceReader:
+        name = "fake"
+
+        def __init__(self):
+            self.calls = 0
+
+        def read(self, bgr):
+            self.calls += 1
+            # 첫 방향은 잘린 조각(고신뢰), 두 번째 방향은 온전한 판독(저신뢰)
+            return [("05g", 0.988)] if self.calls == 1 else [("0.05g", 0.70)]
+
+    r = read_label(TwoFaceReader(), np.zeros((40, 40, 3), np.uint8))
+    assert r.weight_g == 0.05
+    assert r.weight_source_text == "0.05g"

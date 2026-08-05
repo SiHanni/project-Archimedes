@@ -32,6 +32,8 @@ _WEIGHT_RE = re.compile(
 # 순도 각인: 999 / 995 / 916 / 750 / 585 / 24K …
 _PURITY_KARAT_RE = re.compile(r"\b(10|14|18|22|24)\s*k\b", re.IGNORECASE)
 _PURITY_FINENESS_RE = re.compile(r"\b(999|995|990|916|750|585|417)\b")
+# 정수부가 0 으로 시작하고 소수점이 없다 = 소수점을 놓친 조각
+_TRUNCATED_DECIMAL_RE = re.compile(r"^0\d")
 
 _FINENESS_TO_PURITY = {
     "999": "24k", "995": "24k", "990": "24k",
@@ -137,6 +139,12 @@ def parse_label(items: list[tuple[str, float]]) -> LabelReading:
         if not m:
             continue
         raw = m.group(1).replace(",", ".")
+        # "05" · "005" 처럼 **앞자리 0 뒤에 바로 숫자**가 오는 표기는 실제 각인에
+        # 없다. 소수점을 놓친 조각이다(실측: "0.05g" → "05g" → 5 g, 정답의 100배).
+        # 무엇이 떨어졌는지 알 수 없으므로 복원하지 않고 버린다 — 100배 틀린 값을
+        # 내놓느니 부피 측정으로 내려가는 편이 낫다.
+        if _TRUNCATED_DECIMAL_RE.match(raw):
+            continue
         try:
             grams = _to_grams(float(raw), m.group(2))
         except ValueError:
@@ -195,26 +203,20 @@ def read_label(reader: OcrReader, bgr: np.ndarray, *, try_rotations: bool = True
     )
 
     merged: list[tuple[str, float]] = []
-    best: LabelReading | None = None
     try:
         for _deg, rot in rotations:
             img = bgr if rot is None else cv2.rotate(bgr, rot)
             items = reader.read(img)
-            if not items:
-                continue
-            merged.extend(items)
-            got = parse_label(items)
-            # 무게를 읽은 것 중 신뢰도가 가장 높은 방향을 채택
-            if got.weight_g and (best is None or got.weight_confidence > best.weight_confidence):
-                best = got
+            if items:
+                merged.extend(items)
     except Exception as e:  # noqa: BLE001
         log.warning("label OCR failed: %s", e)
         return LabelReading()
 
-    if best is not None:
-        # 텍스트는 모든 방향에서 본 것을 합쳐 남긴다(디버깅·검수용)
-        best.texts = _dedupe(merged)
-        return best
+    # **모든 방향을 합쳐 한 번에 판정한다.** 방향별로 따로 뽑아 신뢰도로 고르면
+    # 조각 필터가 무력해진다 — 실측(도련님 08:25 사진)에서 한 방향은 잘린
+    # "05g"(0.988)를, 다른 방향은 온전한 "0.05g"를 냈는데, 방향별 최고를 고르는
+    # 바람에 둘이 만나지 못하고 5 g 이 채택됐다. 정답의 100배다.
     combined = parse_label(merged)
     combined.texts = _dedupe(merged)
     return combined

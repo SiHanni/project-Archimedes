@@ -109,29 +109,42 @@ class DepthProEstimator:
         tensor = (resized.astype(np.float32) / 255.0 - 0.5) / 0.5
         tensor = np.transpose(tensor, (2, 0, 1))[None, ...]
 
+        out_names = [o.name for o in sess.get_outputs()]
         raw = sess.run(None, {sess.get_inputs()[0].name: tensor})
         arrays = [np.asarray(r, dtype=np.float32) for r in raw]
         canonical = max(arrays, key=lambda a: a.size)
-        scalars = [a for a in arrays if a.size <= 4 and a is not canonical]
-        if not scalars:
-            raise RuntimeError("depth_pro: 화각(FOV) 출력을 찾지 못했습니다")
-        fov_deg = float(np.asarray(scalars[0]).reshape(-1)[0])
-
         canonical = np.squeeze(canonical)
         if canonical.ndim != 2:
             raise RuntimeError(f"depth_pro: 깊이 출력 형상이 이상합니다 {canonical.shape}")
 
-        # ⚠️ W 는 **원본 폭**. 모델 입력 폭(1536)을 쓰면 스케일이 통째로 어긋난다.
-        fov_rad = math.radians(fov_deg)
-        tan_half = math.tan(0.5 * fov_rad)
-        if not (1e-6 < tan_half < 1e6):
-            raise RuntimeError(f"depth_pro: 화각이 비정상입니다 ({fov_deg} deg)")
-        focal_px = 0.5 * w / tan_half
+        # 배포본마다 두 번째 출력이 **화각(deg)** 이거나 **초점거리(px)** 다.
+        # 이름으로 구분한다 — 값만 보고 넘기면 1731(px)을 1731도로 읽는다(실측 사고).
+        scalar_idx = next(
+            (i for i, a in enumerate(arrays) if a.size <= 4 and a.ndim <= 2), None
+        )
+        if scalar_idx is None:
+            raise RuntimeError("depth_pro: 초점거리/화각 출력을 찾지 못했습니다")
+        scalar = float(np.asarray(arrays[scalar_idx]).reshape(-1)[0])
+        scalar_name = out_names[scalar_idx] if scalar_idx < len(out_names) else ""
 
-        inverse_depth = canonical * (w / focal_px)
-        inverse_depth = np.clip(inverse_depth, 1e-4, 1e4)
+        if "focal" in scalar_name.lower():
+            # ⚠️ 그래프 안에서 **모델 입력 폭(1536)** 기준으로 계산된 값이다.
+            #    원본 폭으로 환산하지 않으면 스케일이 통째로 어긋난다.
+            focal_px = scalar * (w / float(self.input_size))
+            fov_deg = math.degrees(2.0 * math.atan(0.5 * self.input_size / max(scalar, 1e-6)))
+        else:
+            fov_deg = scalar
+            tan_half = math.tan(0.5 * math.radians(fov_deg))
+            if not (1e-6 < tan_half < 1e6):
+                raise RuntimeError(f"depth_pro: 화각이 비정상입니다 ({fov_deg} deg)")
+            focal_px = 0.5 * w / tan_half
+
+        if not (0.2 * w <= focal_px <= 8.0 * max(h, w)):
+            raise RuntimeError(f"depth_pro: 초점거리가 비정상입니다 ({focal_px:.0f}px)")
+
+        # W 는 **원본 폭**. 모델 입력 폭을 쓰면 스케일이 통째로 어긋난다.
+        inverse_depth = np.clip(canonical * (w / focal_px), 1e-4, 1e4)
         depth_m = 1.0 / inverse_depth
-
         if depth_m.shape != (h, w):
             depth_m = cv2.resize(depth_m, (w, h), interpolation=cv2.INTER_LINEAR)
 

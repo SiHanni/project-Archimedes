@@ -51,6 +51,11 @@ def load_session(model_dir: str, filename: str, *, cache: bool = True) -> Any:
     opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     # 워커는 job 병렬로 스케일아웃하므로 세션 내부 스레드는 억제한다
     opts.intra_op_num_threads = int(os.environ.get("ARCHIMEDES_ONNX_THREADS", "2"))
+    # CPU 메모리 아레나는 해제한 블록을 붙들고 있어 **최대 상주가 크게 뛴다.**
+    # 컨테이너 메모리가 빠듯한 환경(도련님 Docker VM 7.7GiB)에서는 큰 모델이
+    # 조용히 SIGKILL 당한다 — 예외도 로그도 안 남아 원인 찾기가 어렵다.
+    if os.environ.get("ARCHIMEDES_ONNX_DISABLE_ARENA", "1") == "1":
+        opts.enable_cpu_mem_arena = False
     sess = ort.InferenceSession(path, sess_options=opts, providers=["CPUExecutionProvider"])
     log.info("loaded ONNX model %s inputs=%s", path, [i.name for i in sess.get_inputs()])
     if cache:

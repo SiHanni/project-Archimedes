@@ -124,6 +124,8 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     const refThickness = num(body.reference_thickness_mm);
     // 도금·금박 제품에 인쇄된 순금 함유량 — 부피로는 못 재므로 표기값을 쓴다
     const declaredGold = num(body.declared_gold_g);
+    // 거리 추정용 실제 긴 변(mm)
+    const knownLong = num(body.known_long_mm);
     const input = {
       capture_mode: captureMode,
       image,
@@ -135,6 +137,8 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       reference_thickness_mm: refThickness,
       declared_gold_g: declaredGold,
       knows_weight: body.knows_weight || null,
+      // 거리 추정에서 물체의 실제 긴 변(mm). 사전값보다 정확하므로 있으면 그걸 쓴다.
+      known_long_mm: knownLong,
     };
     await this.pool.execute(
       `INSERT INTO jobs (id, status, input_json, created_at) VALUES (?, 'pending', ?, NOW())`,

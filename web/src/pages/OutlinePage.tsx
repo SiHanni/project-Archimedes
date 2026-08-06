@@ -1,11 +1,12 @@
 /**
- * 에라토스테네스 — 기준물 없이 **누끼만** 따는 탭.
+ * 에라토스테네스 — 기준물 없이 **누끼 + 거리 추정**을 하는 탭.
  *
  * 아르키메데스 탭과 일부러 다르게 만든 것:
- * - 금속·함량·제품 입력이 없다. 무게를 계산하지 않으므로 물어볼 이유가 없다.
- * - 결과에 무게·견적을 **표시하지 않는다.** 없는 값을 0 이나 '-' 로 채우면
- *   사용자는 "재긴 쟀는데 0이네"로 읽는다. 아예 자리를 두지 않는다.
- * - 대신 마스크·누끼·폴리곤을 내려받게 한다(계획서 Step 1 오토라벨링 산출물).
+ * - **무게·견적을 표시하지 않는다.** 거리는 "제품 종류의 일반적 크기" 가정에서
+ *   나온 추정치라 ±10~30% 인데, 무게로 넘어가면 그 오차가 세제곱이 된다.
+ *   없는 값을 0 이나 '-' 로 채우면 "재긴 쟀는데 0이네"로 읽히므로 자리를 두지 않는다.
+ * - 가정한 크기를 **항상 함께 보여 준다.** 가정이 곧 오차이기 때문.
+ * - 마스크·누끼·폴리곤을 내려받게 한다(계획서 Step 1 오토라벨링 산출물).
  */
 import { useEffect, useRef, useState } from 'react';
 import { assetUrl, getJob, postJob, type JobDto } from '../api';
@@ -14,6 +15,8 @@ const POLL_MS = 1500;
 const POLL_LIMIT = 80;
 
 export function OutlinePage() {
+  const [productK, setProductK] = useState('ring');
+  const [knownLongMm, setKnownLongMm] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [job, setJob] = useState<JobDto | null>(null);
@@ -45,6 +48,8 @@ export function OutlinePage() {
       const form = new FormData();
       form.append('image', file);
       form.append('capture_mode', 'outline');
+      form.append('product_k', productK);
+      if (knownLongMm.trim()) form.append('known_long_mm', knownLongMm.trim());
       const created = await postJob(form);
       let tries = 0;
       const poll = async () => {
@@ -79,6 +84,8 @@ export function OutlinePage() {
   const polygon = (seg?.polygon_xy as number[][] | undefined) ?? [];
   const hasAssets = Array.isArray(seg?.assets) && (seg?.assets as string[]).includes('overlay.jpg');
   const done = job?.status === 'completed' || job?.status === 'completed_low_confidence';
+  const dist = job?.result?.meta?.distance;
+  const notes = job?.result?.meta?.sanity?.warnings ?? [];
 
   function downloadPolygon() {
     if (!job) return;
@@ -99,19 +106,43 @@ export function OutlinePage() {
   return (
     <main className="page">
       <section className="card">
-        <h2>귀금속 외곽선 추출</h2>
+        <h2>외곽선 추출 · 거리 추정</h2>
         <p className="muted">
-          사진 한 장에서 귀금속만 오려 냅니다. 기준물(신용카드)이 없어도 됩니다.
+          사진 한 장에서 귀금속만 오려 내고 카메라와의 거리를 추정합니다. 신용카드가 없어도 됩니다.
         </p>
 
         <div className="notice notice--tips" style={{ marginTop: '0.75rem' }}>
-          <p className="notice__title">이 모드가 하지 않는 것</p>
+          <p className="notice__title">거리는 어떻게 추정하나요</p>
           <p style={{ margin: 0 }}>
-            <strong>크기·무게·예상 견적을 계산하지 않습니다.</strong> 사진 한 장에는 절대
-            크기를 알려 주는 정보가 없기 때문입니다(같은 물체라도 가까이 찍으면 크게,
-            멀리 찍으면 작게 나옵니다). 무게가 필요하면 신용카드를 함께 두고{' '}
-            <strong>분석</strong> 탭을 이용해 주세요.
+            제품 종류의 <strong>일반적인 크기</strong>를 가정해 계산합니다. 그래서
+            <strong> 대략적인 값</strong>입니다(실측 오차 ±10~30%). 실제 크기를 아신다면
+            아래에 입력해 주세요 — 훨씬 정확해집니다. <strong>무게는 계산하지 않습니다</strong>{' '}
+            — 크기 가정의 오차가 무게에서는 세제곱으로 커지기 때문입니다.
           </p>
+        </div>
+
+        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginTop: '1rem' }}>
+          <label>
+            제품 종류
+            <select value={productK} onChange={(e) => setProductK(e.target.value)}>
+              <option value="ring">반지</option>
+              <option value="earring">귀걸이</option>
+              <option value="necklace">목걸이</option>
+              <option value="bracelet">팔찌</option>
+              <option value="goldbar">골드바</option>
+            </select>
+          </label>
+          <label>
+            실제 긴 쪽 크기 (mm, 알면)
+            <input
+              type="number"
+              min="1"
+              step="0.1"
+              placeholder="예: 20"
+              value={knownLongMm}
+              onChange={(e) => setKnownLongMm(e.target.value)}
+            />
+          </label>
         </div>
 
         <ul style={{ margin: '0.75rem 0 0', paddingLeft: '1.15rem' }}>
@@ -143,7 +174,7 @@ export function OutlinePage() {
           onClick={submit}
           style={{ marginTop: '1rem' }}
         >
-          {busy ? '추출 중…' : '외곽선 추출'}
+          {busy ? '분석 중…' : '외곽선 추출 · 거리 추정'}
         </button>
 
         {error && (
@@ -166,6 +197,29 @@ export function OutlinePage() {
               alt="귀금속 외곽선을 표시한 이미지"
               style={{ maxWidth: '100%', borderRadius: 8 }}
             />
+            {dist?.object_mm != null ? (
+              <div className="notice notice--slate" style={{ marginTop: '0.75rem' }}>
+                <p className="notice__title">카메라 ↔ 귀금속 거리 (추정)</p>
+                <div style={{ fontSize: '1.35rem', fontWeight: 700 }}>
+                  약 {dist.object_mm.toFixed(0)} mm
+                </div>
+                {dist.range_mm ? (
+                  <div className="muted">
+                    범위 {dist.range_mm[0].toFixed(0)}~{dist.range_mm[1].toFixed(0)} mm
+                    {dist.assumed_long_mm != null
+                      ? ` · 가정한 크기 ${dist.assumed_long_mm.toFixed(0)}mm`
+                      : ''}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            {notes.length ? (
+              <ul className="muted" style={{ marginTop: '0.5rem', paddingLeft: '1.15rem' }}>
+                {notes.map((n, i) => (
+                  <li key={i}>{n}</li>
+                ))}
+              </ul>
+            ) : null}
             <p className="muted" style={{ marginTop: '0.5rem' }}>
               외곽선 꼭짓점 {polygon.length}개 · 화면의{' '}
               {(((seg?.area_frac as number) ?? 0) * 100).toFixed(2)}%

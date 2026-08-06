@@ -192,6 +192,12 @@ export type JobDto = {
         object_mm?: number | null;
         card_mm?: number | null;
         source?: string | null;
+        /** 거리 추정 모드(outline)에서 채워지는 값들 */
+        range_mm?: [number, number];
+        relative_sigma?: number;
+        assumed_long_mm?: number;
+        size_source?: 'user_input' | 'product_prior';
+        focal_source?: string;
       };
       reconstruction?: JobReconstructionMeta;
       /** outline(에라토스테네스) 경로가 채우는 원본 크기 */

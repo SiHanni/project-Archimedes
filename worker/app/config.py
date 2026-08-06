@@ -74,6 +74,14 @@ class Settings(BaseSettings):
         default="depth.onnx", validation_alias="ARCHIMEDES_DEPTH_MODEL_FILE"
     )
     depth_input_size: int = Field(default=518, validation_alias="ARCHIMEDES_DEPTH_INPUT_SIZE")
+    # 거리 추정용 metric depth(초점거리 추정에만 쓴다 — 절대깊이는 못 씀).
+    # 비우면 거리 추정을 하지 않는다.
+    depthpro_model_dir: str = Field(
+        default="", validation_alias="ARCHIMEDES_DEPTHPRO_DIR"
+    )
+    depthpro_model_file: str = Field(
+        default="model_quantized.onnx", validation_alias="ARCHIMEDES_DEPTHPRO_FILE"
+    )
     # 깊이 모델 출력 성격 — 틀리면 스케일 복원이 통째로 어긋난다
     depth_output_kind: str = Field(
         default="affine_invariant", validation_alias="ARCHIMEDES_DEPTH_OUTPUT_KIND"

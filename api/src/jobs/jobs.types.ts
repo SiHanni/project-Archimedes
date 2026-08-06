@@ -25,4 +25,6 @@ export type CreateJobFormFields = {
   declared_gold_g?: string;
   knows_weight?: string;
   capture_mode?: string;
+  /** 거리 추정에서 물체의 실제 긴 변(mm). 알면 사전값보다 정확하다. */
+  known_long_mm?: string;
 };

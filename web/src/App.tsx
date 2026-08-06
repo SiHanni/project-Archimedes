@@ -21,7 +21,7 @@ export default function App() {
         </div>
         <nav className="app-nav" aria-label="주요 메뉴">
           <Link to="/">분석 (카드 기준)</Link>
-          <Link to="/outline">외곽선 추출</Link>
+          <Link to="/outline">외곽선 · 거리</Link>
           <Link to="/legal/terms">이용약관</Link>
           <Link to="/legal/privacy">개인정보</Link>
         </nav>

@@ -44,6 +44,7 @@ from app.pipeline.card import (
     compute_card_geometry,
     try_compute_card_geometry,
 )
+from app.pipeline.distance import distance_warnings, estimate_distance
 from app.pipeline.eratosthenes import bridge_stroke_gaps, extract_outline
 from app.pipeline.exceptions import PipelineError
 from app.pipeline.geometry_g1 import jewel_bbox_uv_mm
@@ -144,7 +145,7 @@ def run_pipeline(
     settings: Settings,
 ) -> dict[str, Any]:
     if inp.capture_mode == "outline":
-        return _run_outline(job_id, images, settings)
+        return _run_outline(job_id, inp, images, settings)
     if inp.capture_mode != "multiview":
         return _run_single(job_id, inp, images, settings)
 
@@ -299,8 +300,52 @@ def _object_distance_mm(
     return z
 
 
+def _estimate_outline_distance(
+    bgr: np.ndarray,
+    mask: np.ndarray,
+    exif: dict[str, Any],
+    inp: JobInputRecord,
+    settings: Settings,
+) -> tuple[dict[str, Any] | None, list[str]]:
+    """
+    기준물 없이 거리 추정. (meta, 경고문)
+
+    초점거리는 **EXIF 우선, 없으면 Depth Pro 추정**. 이 모델의 절대 깊이는 못
+    쓰지만(중앙값 10.3배 과대) 초점거리는 같은 폰 6장에서 변동계수 5.2% 로
+    안정적이었다 — 상세는 `pipeline/distance.py` 머리말.
+    """
+    h, w = bgr.shape[:2]
+    k_exif = intrinsics_from_exif(exif, w, h)
+    focal_px, focal_source = k_exif.fx, k_exif.source
+
+    if focal_source == "fallback":
+        if not settings.depthpro_model_dir:
+            return None, [
+                (
+                    "사진에 초점거리 정보(EXIF)가 없고 추정 모델도 꺼져 있어 "
+                    "거리를 계산하지 못했습니다."
+                )
+            ]
+        try:
+            from app.pipeline.metric_depth import DepthProEstimator
+
+            md = DepthProEstimator(
+                settings.depthpro_model_dir, settings.depthpro_model_file
+            ).estimate(bgr)
+            focal_px, focal_source = md.focal_px, "depth_pro"
+        except Exception as e:  # noqa: BLE001 — 거리 실패가 누끼 실패가 되면 안 된다
+            log.warning("focal estimation failed: %s", e)
+            return None, ["거리를 추정하지 못했습니다(초점거리 추정 실패)."]
+
+    est = estimate_distance(
+        mask, focal_px, focal_source, inp.product_k, inp.known_long_mm
+    )
+    return (est.as_meta() if est else None), distance_warnings(est)
+
+
 def _run_outline(
     job_id: str,
+    inp: JobInputRecord,
     images: dict[str, bytes],
     settings: Settings,
 ) -> dict[str, Any]:
@@ -322,6 +367,9 @@ def _run_outline(
     h, w = bgr.shape[:2]
 
     outline = extract_outline(bgr, settings)
+    distance_meta, distance_notes = _estimate_outline_distance(
+        bgr, outline.mask, exif, inp, settings
+    )
 
     assets_meta: dict[str, Any] = {}
     assets = build_assets(bgr, outline.mask)
@@ -350,14 +398,17 @@ def _run_outline(
             "segmentation": seg_meta,
             "exif": {SINGLE_VIEW_KEY: exif},
             "image_size": {"width": w, "height": h},
+            "distance": distance_meta,
             "sanity": {
+                # 무게·부피는 여전히 내지 않는다. 거리는 **크기 가정**에서 나온
+                # 추정치라 무게로 넘어가면 오차가 세제곱으로 커진다.
                 "scale_available": False,
                 "warnings": [
                     (
-                        "이 모드는 **외곽선만** 추출합니다. 화면에 크기를 아는 물체가 없어 "
-                        "실제 크기·무게는 계산하지 않았습니다. 무게가 필요하면 신용카드를 "
-                        "함께 두고 '카드 기준' 분석을 이용해 주세요."
+                        "이 모드는 외곽선 추출과 **거리 추정**만 합니다. "
+                        "무게가 필요하면 신용카드를 함께 두고 '분석' 탭을 이용해 주세요."
                     ),
+                    *distance_notes,
                 ],
             },
         },

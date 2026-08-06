@@ -67,6 +67,7 @@ export class JobsController {
       reference_thickness_mm: body.reference_thickness_mm,
       declared_gold_g: body.declared_gold_g,
       knows_weight: body.knows_weight,
+      known_long_mm: body.known_long_mm,
     });
   }
 

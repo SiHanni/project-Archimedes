@@ -44,6 +44,8 @@ class JobInputRecord(BaseModel):
     # 도금·금박 제품에 **인쇄된 순금 함유량**(g). 부피로는 못 재므로 표기값을 받는다.
     declared_gold_g: float | None = None
     knows_weight: str | None = None  # "yes" | "no" | None — UX only
+    # 거리 추정에서 물체의 실제 **긴 변**(mm). 알면 사전값 대신 이걸 쓴다.
+    known_long_mm: float | None = None
 
     @model_validator(mode="after")
     def _resolve_capture_mode(self) -> JobInputRecord:

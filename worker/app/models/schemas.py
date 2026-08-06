@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field, model_validator
 
 from app.constants import VIEW_ORDER
 
-CaptureMode = Literal["single", "multiview"]
+# outline = 에라토스테네스. 기준물 없이 **누끼만** 딴다(크기·무게 없음).
+CaptureMode = Literal["single", "multiview", "outline"]
 
 
 class JobViews(BaseModel):

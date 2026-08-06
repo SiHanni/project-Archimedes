@@ -44,6 +44,7 @@ from app.pipeline.card import (
     compute_card_geometry,
     try_compute_card_geometry,
 )
+from app.pipeline.eratosthenes import extract_outline
 from app.pipeline.exceptions import PipelineError
 from app.pipeline.geometry_g1 import jewel_bbox_uv_mm
 from app.pipeline.height_segment import segment_by_height
@@ -142,6 +143,8 @@ def run_pipeline(
     images: dict[str, bytes],
     settings: Settings,
 ) -> dict[str, Any]:
+    if inp.capture_mode == "outline":
+        return _run_outline(job_id, images, settings)
     if inp.capture_mode != "multiview":
         return _run_single(job_id, inp, images, settings)
 
@@ -268,6 +271,71 @@ def _select_jewelry_box(
     best = max(candidates, key=lambda d: d.area())
     meta["selected"] = {"box": list(best.box_xyxy), "score": round(best.score, 5), "label": best.label}
     return best, meta
+
+
+def _run_outline(
+    job_id: str,
+    images: dict[str, bytes],
+    settings: Settings,
+) -> dict[str, Any]:
+    """
+    에라토스테네스 — **누끼만** 낸다. 크기·무게·견적을 내지 않는다.
+
+    카드 같은 기준물이 없으면 절대 크기는 원리적으로 못 낸다(단안 스케일 모호성).
+    대안 세 가지를 실측으로 다 떨어뜨렸다 — 상세는 `pipeline/eratosthenes.py` 머리말.
+    그래서 여기서는 **재지 않는다.** 대신 계획서 Step 1 이 요구하는 세미-오토
+    라벨링 산출물(외곽선·마스크·누끼·폴리곤)을 낸다.
+    """
+    raw = images.get(SINGLE_VIEW_KEY)
+    if raw is None:
+        raise PipelineError("ERR_VIEWS", "Outline job has no image", retry_step=None)
+
+    exif = collect_exif(raw)
+    bgr = bytes_to_bgr(raw, exif.get("orientation"))
+    check_image_quality(bgr, settings, SINGLE_VIEW_KEY)
+    h, w = bgr.shape[:2]
+
+    outline = extract_outline(bgr, settings)
+
+    assets_meta: dict[str, Any] = {}
+    assets = build_assets(bgr, outline.mask)
+    assets_meta = assets.as_meta()
+    if settings.save_segmentation_assets:
+        try:
+            prefix = f"segmentation/{job_id}"
+            for name, payload, ctype in (
+                ("overlay.jpg", assets.overlay_jpg, "image/jpeg"),
+                ("mask.png", assets.mask_png, "image/png"),
+                ("cutout.png", assets.cutout_png, "image/png"),
+            ):
+                upload_object(settings, f"{prefix}/{name}", payload, ctype)
+            assets_meta["assets"] = ["overlay.jpg", "mask.png", "cutout.png"]
+        except Exception as e:  # noqa: BLE001 — 산출물 저장 실패가 분석 실패가 되면 안 된다
+            log.warning("outline assets failed: %s", e)
+            assets_meta["error"] = str(e)[:200]
+
+    seg_meta = dict(outline.meta)
+    seg_meta.update(assets_meta)
+    return {
+        # ⚠️ 무게·부피·치수를 **일부러 넣지 않는다.** 소비 측이 없는 값을
+        #    0 이나 null 로 채워 넣지 않도록 키 자체를 두지 않는다.
+        "meta": {
+            "capture_mode": "outline",
+            "segmentation": seg_meta,
+            "exif": {SINGLE_VIEW_KEY: exif},
+            "image_size": {"width": w, "height": h},
+            "sanity": {
+                "scale_available": False,
+                "warnings": [
+                    (
+                        "이 모드는 **외곽선만** 추출합니다. 화면에 크기를 아는 물체가 없어 "
+                        "실제 크기·무게는 계산하지 않았습니다. 무게가 필요하면 신용카드를 "
+                        "함께 두고 '카드 기준' 분석을 이용해 주세요."
+                    ),
+                ],
+            },
+        },
+    }
 
 
 def _run_single(

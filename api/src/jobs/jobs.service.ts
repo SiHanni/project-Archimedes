@@ -166,8 +166,13 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     // 이걸 그대로 `result` 로 내보내면 클라이언트가 result 가 있다고 믿고
     // mass_est_g 같은 필드를 건드려 터진다(실제로 흰 화면 사고).
     // 분석 결과의 판별 기준은 `mass_est_g` 존재 여부다.
+    // 에라토스테네스(outline)는 **일부러 무게를 내지 않는다.** 그래서 mass_est_g
+    // 만으로 판별하면 정상 결과가 통째로 null 이 되어 누끼가 화면에 안 뜬다.
+    const captureMode = (resultObj?.meta as Record<string, unknown> | undefined)?.capture_mode;
     const isAnalysis =
-      !!resultObj && typeof (resultObj as { mass_est_g?: unknown }).mass_est_g === 'number';
+      !!resultObj &&
+      (typeof (resultObj as { mass_est_g?: unknown }).mass_est_g === 'number' ||
+        captureMode === 'outline');
     const workflow =
       (resultObj?.meta as Record<string, unknown> | undefined)?.workflow ?? null;
     const nestedErr =

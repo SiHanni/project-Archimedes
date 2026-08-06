@@ -15,3 +15,7 @@ api/dist/
 output_debug/
 # ONNX 가중치 — scripts/fetch-models.sh 로 받는다(레포에 커밋하지 않음)
 models/
+
+# 실험용으로 받았던 대형 모델 (에라토스테네스 거리측정 검증). 결과가 부정이라 미사용.
+models/depthpro/
+models/detector/

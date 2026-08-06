@@ -39,6 +39,11 @@ _CROP_MARGIN = 1.0
 _MIN_GROWTH = 0.5
 _MAX_GROWTH = 4.0
 _ITERS = 5
+# GrabCut 은 내부 k-means 를 `cv2.theRNG()` 로 초기화한다. 시드를 고정하지 않으면
+# **같은 사진을 같은 프로세스에서 두 번 돌릴 때 마스크가 미세하게 달라진다**
+# (실측: 같은 이미지의 두 호출에서 마스크 면적 0.010022 vs 0.010038, 부피 0.16% 차).
+# 측정 도구는 같은 입력에 같은 값을 내야 한다.
+_RNG_SEED = 20260101
 
 
 def refine_with_grabcut(
@@ -91,6 +96,7 @@ def refine_with_grabcut(
         gc[(exclude[cy0:cy1, cx0:cx1] > 0) & (sure_fg == 0)] = cv2.GC_BGD
 
     try:
+        cv2.setRNGSeed(_RNG_SEED)
         cv2.grabCut(
             patch, gc, None, np.zeros((1, 65), np.float64), np.zeros((1, 65), np.float64),
             _ITERS, cv2.GC_INIT_WITH_MASK,

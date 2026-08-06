@@ -55,7 +55,7 @@ export class JobsController {
       }
     } else if (!files[SINGLE_IMAGE_FIELD]?.[0]) {
       throw new BadRequestException(
-        `capture_mode=single requires file field "${SINGLE_IMAGE_FIELD}"`,
+        `capture_mode=${mode} requires file field "${SINGLE_IMAGE_FIELD}"`,
       );
     }
 
@@ -79,7 +79,8 @@ export class JobsController {
     requested?: string,
   ): CaptureMode {
     const asked = (requested || '').trim().toLowerCase();
-    if (asked === 'single' || asked === 'multiview') return asked;
+    if (asked === 'single' || asked === 'multiview' || asked === 'outline')
+      return asked;
     if (files[SINGLE_IMAGE_FIELD]?.[0]) return 'single';
     if (VIEW_KEYS.every((v) => files[v]?.[0])) return 'multiview';
     throw new BadRequestException(

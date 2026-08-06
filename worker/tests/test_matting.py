@@ -131,3 +131,43 @@ def test_chroma_finds_metal_that_matches_background_brightness():
     assert ring_hit > 0, "금속 밴드를 못 잡았다"
     assert hole_hit < int(cv2.countNonZero(hole)) * 0.2, "안쪽 그림자를 물체로 잡았다"
     assert local_lab_contrast(img, fg) > 5.0
+
+
+def test_outline_finds_object_and_claims_no_scale():
+    """
+    에라토스테네스 경로: 기준물 없이 외곽선만 낸다.
+
+    크기를 **주장하지 않는다**는 것이 이 경로의 계약이다. 소비 측이 없는 값을
+    0 으로 채워 읽지 않도록 `scale_available: False` 를 명시한다.
+    """
+    from app.pipeline.eratosthenes import extract_outline
+
+    rng = np.random.default_rng(11)
+    img = np.full((600, 800, 3), 40, np.uint8)
+    img += rng.integers(0, 6, img.shape, dtype=np.int16).astype(np.uint8)
+    # 화면 가운데 금색 물체 하나
+    cv2.ellipse(img, (400, 300), (90, 55), 20, 0, 360, (60, 185, 230), -1)
+    img = cv2.GaussianBlur(img, (3, 3), 0)
+
+    res = extract_outline(img)
+    assert res.meta["scale_available"] is False
+    ys, xs = np.where(res.mask > 0)
+    assert 250 < xs.mean() < 550 and 200 < ys.mean() < 400, "물체 위치를 못 찾았다"
+    frac = int(cv2.countNonZero(res.mask)) / (600 * 800)
+    assert 0.005 < frac < 0.10, f"마스크 면적이 이상하다 {frac}"
+
+
+def test_outline_ignores_border_touching_background():
+    """화면 밖으로 이어지는 밝은 영역(배경)은 물체가 아니다."""
+    from app.pipeline.eratosthenes import extract_outline
+
+    img = np.full((600, 800, 3), 40, np.uint8)
+    # 위쪽 가장자리에 붙은 큰 밝은 덩어리 = 배경
+    img[0:150, 100:700] = (200, 200, 200)
+    # 가운데 작은 물체
+    cv2.circle(img, (400, 380), 60, (60, 185, 230), -1)
+    img = cv2.GaussianBlur(img, (3, 3), 0)
+
+    res = extract_outline(img)
+    ys, _xs = np.where(res.mask > 0)
+    assert ys.mean() > 250, "가장자리에 붙은 배경을 물체로 잡았다"

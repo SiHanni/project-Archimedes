@@ -13,7 +13,8 @@ export type JobUploadFiles = Partial<
   Record<ViewKey | typeof SINGLE_IMAGE_FIELD, Express.Multer.File[]>
 >;
 
-export type CaptureMode = 'single' | 'multiview';
+// outline = 에라토스테네스. 기준물 없이 **누끼만** 딴다(크기·무게 없음).
+export type CaptureMode = 'single' | 'multiview' | 'outline';
 
 export type CreateJobFormFields = {
   metal?: string;

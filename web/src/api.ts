@@ -185,6 +185,8 @@ export type JobDto = {
       workflow?: JobWorkflowMeta;
       scale_fusion?: JobScaleFusionMeta;
       reconstruction?: JobReconstructionMeta;
+      /** outline(에라토스테네스) 경로가 채우는 원본 크기 */
+      image_size?: { width: number; height: number };
     };
   } | null;
   error: {

@@ -44,7 +44,7 @@ from app.pipeline.card import (
     compute_card_geometry,
     try_compute_card_geometry,
 )
-from app.pipeline.eratosthenes import extract_outline
+from app.pipeline.eratosthenes import bridge_stroke_gaps, extract_outline
 from app.pipeline.exceptions import PipelineError
 from app.pipeline.geometry_g1 import jewel_bbox_uv_mm
 from app.pipeline.height_segment import segment_by_height
@@ -273,6 +273,32 @@ def _select_jewelry_box(
     return best, meta
 
 
+def _object_distance_mm(
+    mask: np.ndarray, plane, K
+) -> float | None:
+    """
+    카메라에서 **물체까지의 거리**(mm). 마스크 중심 광선이 바닥 평면과 만나는 깊이.
+
+    카드까지의 거리(`scale_fusion.card_distance_mm`)는 카드 중심 기준이라 물체가
+    카드에서 떨어져 있으면 그만큼 다르다. 사용자가 궁금한 건 **찍은 물건까지**의
+    거리이므로 물체 마스크로 다시 계산한다.
+
+    카드 앵커가 있어야 성립한다 — 평면 자체가 카드 PnP 로 풀린 것이기 때문이다.
+    기준물이 없으면 거리도 없다(단안 스케일 모호성). 상세는 `eratosthenes.py` 머리말.
+    """
+    if plane is None or mask is None:
+        return None
+    ys, xs = np.where(mask > 0)
+    if ys.size < 16:
+        return None
+    rx = (float(xs.mean()) - K.cx) / K.fx
+    ry = (float(ys.mean()) - K.cy) / K.fy
+    z = float(plane.ray_depth(np.array([[rx]]), np.array([[ry]]))[0, 0])
+    if not np.isfinite(z) or not (10.0 <= z <= 3000.0):
+        return None
+    return z
+
+
 def _run_outline(
     job_id: str,
     images: dict[str, bytes],
@@ -456,6 +482,11 @@ def _run_single(
             exclude = cv2.bitwise_not(card_roi_mask(card, mask.shape, MATTING_ROI_SPANS))
             cv2.fillPoly(exclude, [np.asarray(card.quad_px, dtype=np.int32)], 255)
         mask, matte_meta = refine_with_grabcut(bgr, mask, exclude=exclude)
+        # 반지처럼 가는 고리는 그늘진 호가 떨어져 나가 마스크가 끊긴다.
+        # 물체 자신의 선 두께만큼만 이어 붙인다(구멍은 안 메워진다).
+        mask, bridged_px = bridge_stroke_gaps(mask)
+        if bridged_px:
+            matte_meta["bridged_gap_px"] = bridged_px
         mask_meta.update(matte_meta)
         # 정밀화로 마스크가 바뀌었으니 면적도 다시 적는다 — meta 는 실제로 쓴 마스크를 말해야 한다
         mask_meta["area_frac"] = round(float(np.count_nonzero(mask)) / float(h * w), 6)
@@ -505,6 +536,7 @@ def _run_single(
             log.warning("segmentation assets failed: %s", e)
             seg_assets_meta = {"error": str(e)[:200]}
 
+    object_distance_mm = _object_distance_mm(mask, fusion.support_plane, K)
     V_adj, alpha_k, beta_k = hollow.adjusted_volume_depth_mm3(rec.volume_mm3, inp.product_k)
     mass = hollow.mass_g(V_adj, inp.metal, inp.purity)
 
@@ -707,6 +739,13 @@ def _run_single(
             "depth": {"backend": dmap.meta.get("backend"), "kind": dmap.kind.value},
             "scale_fusion": fusion.as_meta(),
             "reconstruction": rec.as_meta(),
+            "distance": {
+                # 카메라 ↔ 물체. 카드 앵커가 푼 바닥 평면에서 나온 값이라
+                # 카드가 없으면 None 이다.
+                "object_mm": (round(object_distance_mm, 1) if object_distance_mm is not None else None),
+                "card_mm": fusion.card_distance_mm,
+                "source": "card_plane_pnp" if fusion.support_plane is not None else None,
+            },
             "uncertainty": {
                 "volume_relative_sigma": round(vol_sigma, 4),
                 "depth_rmse_over_distance": round(rel_rmse, 5) if rel_rmse is not None else None,

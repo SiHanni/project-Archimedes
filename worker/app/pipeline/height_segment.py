@@ -38,8 +38,14 @@ log = logging.getLogger(__name__)
 DEFAULT_MIN_HEIGHT_MM = 2.0
 # 소비자 귀금속이 이보다 두꺼울 일은 없다 — 넘으면 다른 물건이다
 DEFAULT_MAX_HEIGHT_MM = 60.0
-# 카드 긴 변의 배수 — "카드 옆"의 정량적 정의
-DEFAULT_ROI_CARD_SPANS = 1.0
+# 카드 긴 변의 배수 — "카드 옆"의 정량적 정의.
+#
+# 1.0 은 좁다. 카드 중심에서 재는 반경이라, 물체가 카드에서 카드 한 변만큼
+# 떨어져 있으면 물체의 **바깥쪽 절반이 잘린다**(실측 반지: 중심 거리 1613px,
+# 반지름 385px, ROI 반경 1721px → 왼쪽 호가 ROI 밖이라 마스크가 반쪽이 됐다).
+# 넓혀도 안전한 이유: 프레임 테두리에 닿는 성분을 이미 배제하고(배경 제거),
+# 촬영 규약 방향에 가점을 준다.
+DEFAULT_ROI_CARD_SPANS = 1.8
 
 
 def height_above_plane_mm(

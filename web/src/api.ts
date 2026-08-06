@@ -184,6 +184,15 @@ export type JobDto = {
       };
       workflow?: JobWorkflowMeta;
       scale_fusion?: JobScaleFusionMeta;
+      /**
+       * 카메라 ↔ 피사체 거리. 카드 앵커가 푼 바닥 평면에서 나오므로
+       * 기준물이 없으면 전부 null 이다(단안 스케일 모호성).
+       */
+      distance?: {
+        object_mm?: number | null;
+        card_mm?: number | null;
+        source?: string | null;
+      };
       reconstruction?: JobReconstructionMeta;
       /** outline(에라토스테네스) 경로가 채우는 원본 크기 */
       image_size?: { width: number; height: number };

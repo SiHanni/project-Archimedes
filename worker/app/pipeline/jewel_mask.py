@@ -149,7 +149,7 @@ def refine_jewel_mask(
     card: CardGeometry | None,
     view: str = "front",
     *,
-    roi_card_spans: float = 1.0,
+    roi_card_spans: float = 1.8,
     side: str = "any",
 ) -> tuple[np.ndarray, dict[str, object]]:
     """

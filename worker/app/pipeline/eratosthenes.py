@@ -101,6 +101,47 @@ def _pick_component(fg: np.ndarray, shape: tuple[int, int]) -> np.ndarray | None
     return ((labels == best_i).astype(np.uint8)) * 255
 
 
+# 틈을 이을 때 쓰는 커널 = 선 두께의 이 배수. 크게 잡으면 반지 구멍까지 메운다.
+_GAP_BRIDGE_STROKES = 3.0
+
+
+def bridge_stroke_gaps(mask: np.ndarray) -> tuple[np.ndarray, int]:
+    """
+    물체의 **선 두께**만큼만 틈을 잇는다. (마스크, 사용한 커널 px)
+
+    반지처럼 가는 고리는 한쪽 호가 그늘지면 그 구간의 채도·명도가 떨어져 마스크가
+    끊긴다(실측: 도련님 반지 11시 방향 호가 빠졌다). 색만 보는 방법으로는 못 살린다.
+
+    고정 크기로 닫으면 위험하다 — 크게 잡으면 **반지 구멍까지 메워** 면적이 몇 배가
+    된다. 그래서 커널을 물체 자신의 선 두께에서 만든다. 거리변환의 최대값이
+    선 반두께이므로, 그 3배면 가는 고리의 끊김은 잇고 구멍(반지름 수백 px)은
+    건드리지 못한다.
+
+    꽉 찬 덩어리(골드바)에서는 선 두께가 물체 반지름과 같아 커널이 커지지만,
+    닫을 틈이 없으므로 결과가 바뀌지 않는다.
+    """
+    if int(cv2.countNonZero(mask)) < 64:
+        return mask, 0
+    dist = cv2.distanceTransform((mask > 0).astype(np.uint8), cv2.DIST_L2, 5)
+    half_stroke = float(dist.max())
+    if half_stroke <= 1.0:
+        return mask, 0
+
+    ys, xs = np.where(mask > 0)
+    extent = max(int(xs.max() - xs.min()), int(ys.max() - ys.min()), 1)
+    k = round(_GAP_BRIDGE_STROKES * 2.0 * half_stroke)
+    # 물체 전체 크기의 1/4 을 넘는 커널은 형태를 바꿔 버린다
+    k = max(3, min(k, extent // 4) | 1)
+    if k < 3:
+        return mask, 0
+
+    closed = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
+    # 이어 붙인 결과가 원본의 1.6배를 넘으면 형태를 바꾼 것이다 — 되돌린다
+    if int(cv2.countNonZero(closed)) > int(cv2.countNonZero(mask)) * 1.6:
+        return mask, 0
+    return closed, k
+
+
 def _card_exclusion(bgr: np.ndarray, settings: Any) -> tuple[np.ndarray | None, bool]:
     """
     사진에 신용카드가 있으면 그 영역을 지운다. (제외 마스크, 카드 있었나)
@@ -172,6 +213,9 @@ def extract_outline(bgr: np.ndarray, settings: Any = None) -> OutlineResult:
     exclude = fence if exclude is None else cv2.bitwise_or(exclude, fence)
 
     mask, matte = refine_with_grabcut(bgr, mask, exclude=exclude)
+    mask, bridged_px = bridge_stroke_gaps(mask)
+    if bridged_px:
+        matte["bridged_gap_px"] = bridged_px
 
     frac = float(np.count_nonzero(mask)) / float(h * w)
     meta: dict[str, Any] = {

@@ -210,6 +210,7 @@ export function HomePage() {
   const hideQuote = tier === 'low';
   const sanity = job?.result?.meta?.sanity;
   const fusion = job?.result?.meta?.scale_fusion;
+  const distance = job?.result?.meta?.distance;
   const recon = job?.result?.meta?.reconstruction;
   const seg = job?.result?.meta?.segmentation;
   const ocr = job?.result?.meta?.label_ocr;
@@ -561,10 +562,15 @@ export function HomePage() {
               {fusion || recon ? (
                 <div className="notice notice--slate" style={{ marginTop: '0.75rem' }}>
                   <p className="notice__title">측정값</p>
-                  {fusion?.card_distance_mm != null ? (
+                  {distance?.object_mm != null ? (
                     <div>
+                      <strong>카메라 ↔ 귀금속 거리: {distance.object_mm.toFixed(0)} mm</strong>
+                      {fusion?.depth_rmse_mm != null ? ` (±${fusion.depth_rmse_mm.toFixed(1)} mm)` : ''}
+                    </div>
+                  ) : null}
+                  {fusion?.card_distance_mm != null ? (
+                    <div className="muted">
                       카드까지 거리: {fusion.card_distance_mm.toFixed(0)} mm
-                      {fusion.depth_rmse_mm != null ? ` (거리 오차 ±${fusion.depth_rmse_mm.toFixed(1)} mm)` : ''}
                     </div>
                   ) : null}
                   {recon?.length_mm != null && recon?.width_mm != null ? (

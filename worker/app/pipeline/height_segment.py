@@ -34,8 +34,11 @@ from app.pipeline.reconstruct import SupportPlane
 
 log = logging.getLogger(__name__)
 
-# 깊이 노이즈(카드 위 홀드아웃 RMSE 실측 ~0.6mm)보다 넉넉히 위
+# 깊이 RMSE 를 모를 때만 쓰는 기본 임계(보수적).
 DEFAULT_MIN_HEIGHT_MM = 2.0
+# RMSE 를 알 때의 **절대 하한**. 이보다 낮은 높이는 어떤 노이즈 수준에서도
+# 물체라고 주장하지 않는다(바닥 요철·평면 피팅 잔차 수준).
+ABSOLUTE_MIN_HEIGHT_MM = 0.5
 # 소비자 귀금속이 이보다 두꺼울 일은 없다 — 넘으면 다른 물건이다
 DEFAULT_MAX_HEIGHT_MM = 60.0
 # 카드 긴 변의 배수 — "카드 옆"의 정량적 정의.
@@ -79,7 +82,14 @@ def segment_by_height(
     실측에서 RMSE 9.7mm 인데 임계 2mm 를 쓰자 화면의 25% 가 물체로 잡혔다.
     """
     if depth_rmse_mm is not None and depth_rmse_mm > 0:
-        min_height_mm = max(min_height_mm, 3.0 * float(depth_rmse_mm))
+        # ⚠️ **올리기만 하면 안 된다.** 종전에는 `max(2.0, 3·RMSE)` 라 상수 2.0 이
+        # 바닥으로 남았는데, 잘 찍힌 사진(RMSE 0.24mm 실측)에서 2.0mm 는 노이즈의
+        # 8배다. 그 탓에 높이 1.62mm 짜리 반지가 통째로 걸러져 깊이 경로가 실패하고
+        # **불안정한 외형 폴백**으로 떨어졌다(같은 반지 마스크가 사진마다 2.3%↔4.3%).
+        #
+        # RMSE 를 실제로 쟀으면 임계도 그걸 따라야 한다. 3배면 신호 대 잡음비 3 이고,
+        # 노이즈가 큰 사진에서는 이 식이 알아서 임계를 올려 준다(실측 1.089 → 3.27mm).
+        min_height_mm = max(ABSOLUTE_MIN_HEIGHT_MM, 3.0 * float(depth_rmse_mm))
     h, w = depth_mm.shape[:2]
     height = height_above_plane_mm(depth_mm, plane, K)
 

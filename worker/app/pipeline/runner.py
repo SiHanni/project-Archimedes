@@ -144,8 +144,10 @@ def run_pipeline(
     images: dict[str, bytes],
     settings: Settings,
 ) -> dict[str, Any]:
-    if inp.capture_mode == "outline":
-        return _run_outline(job_id, inp, images, settings)
+    if inp.capture_mode in ("outline", "distance"):
+        return _run_outline(
+            job_id, inp, images, settings, with_distance=inp.capture_mode == "distance"
+        )
     if inp.capture_mode != "multiview":
         return _run_single(job_id, inp, images, settings)
 
@@ -348,9 +350,14 @@ def _run_outline(
     inp: JobInputRecord,
     images: dict[str, bytes],
     settings: Settings,
+    with_distance: bool = False,
 ) -> dict[str, Any]:
     """
-    에라토스테네스 — **누끼만** 낸다. 크기·무게·견적을 내지 않는다.
+    에라토스테네스 — 누끼(+선택적으로 거리). 무게·견적은 어느 쪽도 내지 않는다.
+
+    `with_distance` 가 꺼져 있으면 **초점거리 추정을 아예 안 탄다.** Depth Pro 는
+    1GB 모델을 2~3분 돌리므로, 누끼만 필요한 사용자에게 그 비용을 물리지 않는다.
+    탭을 나눈 이유가 이것이다.
 
     카드 같은 기준물이 없으면 절대 크기는 원리적으로 못 낸다(단안 스케일 모호성).
     대안 세 가지를 실측으로 다 떨어뜨렸다 — 상세는 `pipeline/eratosthenes.py` 머리말.
@@ -367,9 +374,12 @@ def _run_outline(
     h, w = bgr.shape[:2]
 
     outline = extract_outline(bgr, settings)
-    distance_meta, distance_notes = _estimate_outline_distance(
-        bgr, outline.mask, exif, inp, settings
-    )
+    distance_meta: dict[str, Any] | None = None
+    distance_notes: list[str] = []
+    if with_distance:
+        distance_meta, distance_notes = _estimate_outline_distance(
+            bgr, outline.mask, exif, inp, settings
+        )
 
     assets_meta: dict[str, Any] = {}
     assets = build_assets(bgr, outline.mask)
@@ -394,7 +404,7 @@ def _run_outline(
         # ⚠️ 무게·부피·치수를 **일부러 넣지 않는다.** 소비 측이 없는 값을
         #    0 이나 null 로 채워 넣지 않도록 키 자체를 두지 않는다.
         "meta": {
-            "capture_mode": "outline",
+            "capture_mode": "distance" if with_distance else "outline",
             "segmentation": seg_meta,
             "exif": {SINGLE_VIEW_KEY: exif},
             "image_size": {"width": w, "height": h},
@@ -405,8 +415,13 @@ def _run_outline(
                 "scale_available": False,
                 "warnings": [
                     (
-                        "이 모드는 외곽선 추출과 **거리 추정**만 합니다. "
-                        "무게가 필요하면 신용카드를 함께 두고 '분석' 탭을 이용해 주세요."
+                        "이 모드는 거리만 추정합니다. 무게가 필요하면 신용카드를 "
+                        "함께 두고 '분석' 탭을 이용해 주세요."
+                    )
+                    if with_distance
+                    else (
+                        "이 모드는 외곽선만 추출합니다. 크기·무게가 필요하면 "
+                        "'거리' 탭이나 '분석' 탭을 이용해 주세요."
                     ),
                     *distance_notes,
                 ],

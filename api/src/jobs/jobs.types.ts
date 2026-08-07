@@ -13,8 +13,10 @@ export type JobUploadFiles = Partial<
   Record<ViewKey | typeof SINGLE_IMAGE_FIELD, Express.Multer.File[]>
 >;
 
-// outline = 에라토스테네스. 기준물 없이 **누끼만** 딴다(크기·무게 없음).
-export type CaptureMode = 'single' | 'multiview' | 'outline';
+// 에라토스테네스(기준물 없음) 두 모드 — 비용이 크게 달라 일부러 나눴다.
+//   outline  : 누끼만. 몇 초.
+//   distance : 누끼 + 거리. Depth Pro 를 돌려 2~3분.
+export type CaptureMode = 'single' | 'multiview' | 'outline' | 'distance';
 
 export type CreateJobFormFields = {
   metal?: string;

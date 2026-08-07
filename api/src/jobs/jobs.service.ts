@@ -176,7 +176,8 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     const isAnalysis =
       !!resultObj &&
       (typeof (resultObj as { mass_est_g?: unknown }).mass_est_g === 'number' ||
-        captureMode === 'outline');
+        captureMode === 'outline' ||
+        captureMode === 'distance');
     const workflow =
       (resultObj?.meta as Record<string, unknown> | undefined)?.workflow ?? null;
     const nestedErr =

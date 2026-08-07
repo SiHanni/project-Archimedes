@@ -6,8 +6,10 @@ from pydantic import BaseModel, Field, model_validator
 
 from app.constants import VIEW_ORDER
 
-# outline = 에라토스테네스. 기준물 없이 **누끼만** 딴다(크기·무게 없음).
-CaptureMode = Literal["single", "multiview", "outline"]
+# 에라토스테네스(기준물 없음) 두 모드 — 비용이 크게 달라 일부러 나눴다.
+#   outline  : 누끼만. 초점거리 추정을 안 타므로 **몇 초**면 끝난다.
+#   distance : 누끼 + 거리. Depth Pro(1GB) 를 돌려 **2~3분** 걸린다.
+CaptureMode = Literal["single", "multiview", "outline", "distance"]
 
 
 class JobViews(BaseModel):

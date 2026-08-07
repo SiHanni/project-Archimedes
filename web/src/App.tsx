@@ -2,6 +2,7 @@ import { Link, Route, Routes } from 'react-router-dom';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { HomePage } from './pages/HomePage';
 import { LegalPage } from './pages/LegalPage';
+import { DistancePage } from './pages/DistancePage';
 import { OutlinePage } from './pages/OutlinePage';
 
 export default function App() {
@@ -21,7 +22,8 @@ export default function App() {
         </div>
         <nav className="app-nav" aria-label="주요 메뉴">
           <Link to="/">분석 (카드 기준)</Link>
-          <Link to="/outline">외곽선 · 거리</Link>
+          <Link to="/outline">외곽선 추출</Link>
+          <Link to="/distance">거리 측정</Link>
           <Link to="/legal/terms">이용약관</Link>
           <Link to="/legal/privacy">개인정보</Link>
         </nav>
@@ -30,6 +32,7 @@ export default function App() {
         <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/outline" element={<OutlinePage />} />
+        <Route path="/distance" element={<DistancePage />} />
         <Route path="/legal/terms" element={<LegalPage kind="terms" />} />
         <Route path="/legal/privacy" element={<LegalPage kind="privacy" />} />
       </Routes>

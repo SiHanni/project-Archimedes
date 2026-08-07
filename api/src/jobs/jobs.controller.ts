@@ -80,7 +80,12 @@ export class JobsController {
     requested?: string,
   ): CaptureMode {
     const asked = (requested || '').trim().toLowerCase();
-    if (asked === 'single' || asked === 'multiview' || asked === 'outline')
+    if (
+      asked === 'single' ||
+      asked === 'multiview' ||
+      asked === 'outline' ||
+      asked === 'distance'
+    )
       return asked;
     if (files[SINGLE_IMAGE_FIELD]?.[0]) return 'single';
     if (VIEW_KEYS.every((v) => files[v]?.[0])) return 'multiview';

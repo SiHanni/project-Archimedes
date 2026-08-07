@@ -98,11 +98,26 @@ def test_stub_depth_is_honest_about_unknown_thickness(single_settings: Settings)
 
 
 def test_mass_is_plausible_for_a_ring(single_settings: Settings) -> None:
-    """면적 302mm² × 최소두께 1.0mm × α(0.80) × ρ(18K 15.58) ≈ 3.8 g."""
+    """
+    무게 = 면적 × 두께 × α_k × ρ 가 실제로 그렇게 곱해지는지.
+
+    ⚠️ 기대값을 숫자로 박지 않는다. α_k 는 실측 피드백으로 바뀌는 값이라
+    (2026-08-07: ring 0.80 → 0.36) 숫자를 박아 두면 **보정할 때마다 테스트가
+    깨진다.** 상수에서 유도해 사슬 자체를 검증한다.
+    """
+    from app.constants import HOLLOW_ALPHA_BETA_DEPTH, MATERIALS
+
     out = _run(single_settings, metal="gold", purity="18k", product_k="ring")
-    assert 2.0 < out["mass_est_g"] < 6.0
+    rec = out["meta"]["reconstruction"]
+    alpha = HOLLOW_ALPHA_BETA_DEPTH["ring"][0]
+    rho = MATERIALS[("gold", "18k")].rho_g_cm3
+
+    expected = rec["area_proj_mm2"] * rec["h_mean_mm"] * alpha * rho / 1000.0
+    assert out["mass_est_g"] == pytest.approx(expected, rel=0.02)
     assert out["meta"]["hollow"]["table"] == "depth"
-    assert out["meta"]["hollow"]["alpha_k"] == pytest.approx(0.80)
+    assert out["meta"]["hollow"]["alpha_k"] == pytest.approx(alpha)
+    # 소비자 반지가 물리적으로 가질 수 있는 범위 안이어야 한다
+    assert 0.3 < out["mass_est_g"] < 20.0
 
 
 def test_density_choice_changes_mass_proportionally(single_settings: Settings) -> None:

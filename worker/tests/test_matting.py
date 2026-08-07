@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import cv2
 import numpy as np
+import pytest
 
 from app.pipeline.matting import refine_with_grabcut
 
@@ -202,3 +203,26 @@ def test_false_card_detection_does_not_erase_the_object():
     assert res.meta["card_present"] is False, "가짜 카드를 진짜로 믿었다"
     ys, xs = np.where(res.mask > 0)
     assert 300 < xs.mean() < 500 and 350 < ys.mean() < 490, "물체를 못 찾았다"
+
+
+def test_height_threshold_follows_measured_noise_both_ways():
+    """
+    높이 임계는 깊이 노이즈를 **양방향으로** 따라가야 한다.
+
+    실측: 잘 찍힌 사진(RMSE 0.24mm)에서 종전 식 `max(2.0, 3·RMSE)` 는 상수 2.0 이
+    바닥으로 남아, 높이 1.62mm 짜리 반지를 통째로 걸러 깊이 경로를 실패시켰다.
+    그 결과 불안정한 외형 폴백으로 떨어져 같은 반지 마스크가 2.3%↔4.3% 로 흔들렸다.
+    """
+    from app.pipeline.height_segment import ABSOLUTE_MIN_HEIGHT_MM
+
+    def threshold(rmse: float) -> float:
+        return max(ABSOLUTE_MIN_HEIGHT_MM, 3.0 * rmse)
+
+    # 좋은 사진: 임계가 내려가 얇은 물체도 잡힌다
+    assert threshold(0.24) == pytest.approx(0.72)
+    assert threshold(0.24) < 1.62, "높이 1.62mm 반지가 통과해야 한다"
+    # 나쁜 사진: 임계가 알아서 올라가 노이즈를 물체로 착각하지 않는다
+    assert threshold(1.089) == pytest.approx(3.267)
+    assert threshold(1.089) > 1.285, "노이즈 수준 높이는 걸러야 한다"
+    # 노이즈가 0 에 가까워도 절대 하한 아래로는 안 내려간다
+    assert threshold(0.01) == pytest.approx(ABSOLUTE_MIN_HEIGHT_MM)

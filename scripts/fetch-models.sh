@@ -24,6 +24,18 @@ for f in "${VARIANT}.onnx" "${VARIANT}.onnx_data"; do
   curl -fSL --progress-bar -o "${DEST}/${f}" "$url"
 done
 
+
+# ── SlimSAM (프롬프트 기반 분할, 40MB) ─────────────────────────────────
+# 외형 폴백의 임계값 흔들림을 줄인다. 실측: 같은 반지 두 사진의 마스크 편차가
+# 1.87배 → 1.04배. 깊이 경로가 성공하면 타지 않으므로 상시 비용은 없다.
+SAM_DIR="${MODEL_DIR}/sam"
+mkdir -p "$SAM_DIR"
+for f in onnx/vision_encoder.onnx onnx/prompt_encoder_mask_decoder.onnx config.json preprocessor_config.json; do
+  echo "==> SlimSAM $(basename "$f")"
+  curl -sSL --fail -o "${SAM_DIR}/$(basename "$f")" \
+    "https://huggingface.co/Xenova/slimsam-77-uniform/resolve/main/${f}"
+done
+
 cat <<MSG
 
 ==> 완료. .env 에 아래를 넣고 워커를 재기동하세요.
@@ -31,6 +43,7 @@ cat <<MSG
   ARCHIMEDES_DEPTH_BACKEND=onnx
   ARCHIMEDES_DEPTH_MODEL_FILE=${VARIANT}.onnx
   ARCHIMEDES_DEPTH_OUTPUT_KIND=inverse_affine
+  ARCHIMEDES_SAM_DIR=/models/sam
 
   docker compose up -d --build worker worker-consumer
 

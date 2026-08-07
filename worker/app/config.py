@@ -82,6 +82,9 @@ class Settings(BaseSettings):
     depthpro_model_file: str = Field(
         default="model_quantized.onnx", validation_alias="ARCHIMEDES_DEPTHPRO_FILE"
     )
+    # 프롬프트 기반 분할(SlimSAM). 비우면 쓰지 않는다.
+    # 외형 폴백의 임계값 흔들림을 줄이는 용도 — 깊이 경로가 성공하면 안 탄다.
+    sam_model_dir: str = Field(default="", validation_alias="ARCHIMEDES_SAM_DIR")
     # 깊이 모델 출력 성격 — 틀리면 스케일 복원이 통째로 어긋난다
     depth_output_kind: str = Field(
         default="affine_invariant", validation_alias="ARCHIMEDES_DEPTH_OUTPUT_KIND"

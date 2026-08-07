@@ -226,3 +226,43 @@ def test_height_threshold_follows_measured_noise_both_ways():
     assert threshold(1.089) > 1.285, "노이즈 수준 높이는 걸러야 한다"
     # 노이즈가 0 에 가까워도 절대 하한 아래로는 안 내려간다
     assert threshold(0.01) == pytest.approx(ABSOLUTE_MIN_HEIGHT_MM)
+
+
+def test_sam_growth_guard_rejects_runaway_masks():
+    """
+    SAM 은 프롬프트가 가리키는 곳을 믿는다 — **씨앗이 나쁘면 결과도 나쁘다.**
+
+    실측: 씨앗이 2mm² 짜리 잡음이었을 때 SAM 이 12,984mm²(책상 전체)를 냈다.
+    씨앗 대비 규모가 크게 다르면 되돌려야 한다.
+    """
+    from app.pipeline.backends.sam import refine_with_sam
+
+    class RunawaySam:
+        """항상 화면 전체를 물체라고 우기는 가짜 SAM."""
+
+        def segment_at(self, bgr, pts, lbs):
+            return np.full(bgr.shape[:2], 255, np.uint8), 0.99
+
+    img = np.zeros((300, 400, 3), np.uint8)
+    seed = np.zeros((300, 400), np.uint8)
+    seed[140:160, 190:210] = 255
+
+    out, meta = refine_with_sam(RunawaySam(), img, seed)
+    assert meta["sam"] == "rejected_growth"
+    assert np.array_equal(out, seed), "폭주한 SAM 결과 대신 씨앗을 써야 한다"
+
+
+def test_sam_prompt_lands_on_the_object_not_the_hole():
+    """
+    반지처럼 가운데가 빈 물체는 **무게중심이 구멍(=바닥)** 이다.
+    거리변환 최대점을 쓰면 반드시 물체 위에 찍힌다.
+    """
+    from app.pipeline.backends.sam import prompt_from_mask
+
+    ring = np.zeros((400, 400), np.uint8)
+    cv2.circle(ring, (200, 200), 120, 255, 30)  # 속 빈 고리
+
+    pts, lbs = prompt_from_mask(ring, n_points=3)
+    assert len(pts) == len(lbs) and lbs.dtype == np.int64
+    for x, y in pts:
+        assert ring[round(y), round(x)] > 0, "프롬프트가 구멍에 찍혔다"

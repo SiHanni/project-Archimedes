@@ -16,9 +16,17 @@ class ConfidenceState:
     # 부피 모델이 상한 근사(슬랩 AABB)이거나 스케일 앵커가 없을 때의 감점.
     # 슬랩 단독에는 격자 해상도 개념이 없어 `multires_penalty` 로는 표현할 수 없다.
     coarse_volume_model: bool = False
+    # 두께를 **아예 못 잰** 경우. 관측 높이가 깊이 노이즈에 묻혀 clamp 로 채운 것과
+    # "조금 어긋나 clamp 된" 것은 전혀 다르다 — 전자는 부피가 통째로 가정이다.
+    thickness_unmeasured: bool = False
 
     def tier(self) -> str:
         if not self.quality_ok:
+            return "low"
+        # 두께가 가정뿐이면 무게도 가정뿐이다. medium 으로 내보내면 사용자는
+        # "쟀다"고 읽는다 — 실측(도련님 반지): 관측 높이 p95 0.87mm 가 깊이
+        # 노이즈 RMSE 0.72mm 와 사실상 같아 두께를 못 쟀는데 tier=medium 이 나갔다.
+        if self.thickness_unmeasured:
             return "low"
         score = 2
         if self.multires_penalty:

@@ -70,6 +70,10 @@ SINGLE_VIEW_KEY = "front"
 # 3배를 넘기 어렵다.
 SOLID_GOLD_RATIO_THRESHOLD = 3.0
 
+# 관측 높이가 깊이 RMSE 의 이 배수 이하이면 **두께를 못 잰 것**으로 본다.
+# 1.5 배면 신호 대 잡음비가 사실상 1 이다.
+THICKNESS_NOISE_FLOOR_RATIO = 1.5
+
 # 누끼 정밀화가 넘어가면 안 되는 반경(카드 긴 변의 배수). 물체 탐색 ROI 보다
 # 넉넉해야 물체 전체를 덮을 수 있고, 그래도 책상 전체를 먹지는 못한다.
 MATTING_ROI_SPANS = 2.0
@@ -643,6 +647,15 @@ def _run_single(
     # ── 신뢰도 입력 매핑 ──
     scale_tight = fusion.anchor_used and not fusion.ill_conditioned
     thickness_assumed = rec.thickness_clamp is not None
+    # 관측 높이가 깊이 노이즈와 같은 크기면 두께를 **잰 게 아니다.**
+    # 이때 부피는 면적 × 가정두께일 뿐이므로 신뢰도를 medium 으로 둘 수 없다.
+    height_p95 = rec.meta.get("height_p95_mm")
+    thickness_unmeasured = bool(
+        thickness_assumed
+        and height_p95 is not None
+        and fusion.depth_rmse_mm
+        and float(height_p95) <= THICKNESS_NOISE_FLOOR_RATIO * float(fusion.depth_rmse_mm)
+    )
     weak_model = rec.method != "height_field"
     rel_rmse = None
     if fusion.depth_rmse_mm is not None and fusion.card_distance_mm:
@@ -655,6 +668,7 @@ def _run_single(
         quality_ok=not implausible_mass and not volume_unmeasurable,
         precision_boost=K.is_reliable and scale_tight,
         coarse_volume_model=weak_model or thickness_assumed,
+        thickness_unmeasured=thickness_unmeasured,
     )
     if mass_source in ("declared_label", "ocr_label"):
         # 표기값은 제조사 스펙이다 — 우리 측정 신뢰도로 깎을 대상이 아니다.
@@ -668,6 +682,7 @@ def _run_single(
         quality_ok=(tier != "low"),
         precision_boost=K.is_reliable and scale_tight,
         coarse_volume_model=weak_model or thickness_assumed,
+        thickness_unmeasured=thickness_unmeasured,
     ).pct()
     if tier == "low":
         pct = min(pct, 35.0)
@@ -696,7 +711,17 @@ def _run_single(
             f"두께는 입력하신 {inp.reference_thickness_mm:g} mm 를 사용했습니다"
             "(이 두께는 사진으로 잴 수 없어 입력값에 정확도가 좌우됩니다)."
         )
-    if thickness_assumed:
+    if thickness_unmeasured:
+        # "조금 어긋나 clamp" 와 "아예 못 쟀다"는 사용자에게 전혀 다른 이야기다.
+        # 후자는 무게가 사실상 가정값이므로 그 말을 그대로 해야 한다.
+        warnings.append(
+            f"이 물건은 너무 납작해서 **두께를 재지 못했습니다** "
+            f"(관측 높이 {float(height_p95):.2f} mm, 측정 오차 "
+            f"±{float(fusion.depth_rmse_mm):.2f} mm — 구분이 안 되는 수준). "
+            f"제품 기준값 {rec.h_mean_mm:.1f} mm 를 **가정**해 계산했으므로, "
+            "무게는 참고만 해주세요. 실제 무게를 아시면 알려 주시면 보정에 씁니다."
+        )
+    elif thickness_assumed:
         warnings.append(
             f"두께를 관측하지 못해 제품 기준값({rec.h_mean_mm:.1f} mm)으로 가정했습니다. "
             "실제 무게와 차이가 클 수 있습니다."
@@ -767,6 +792,8 @@ def _run_single(
         degraded_reasons.append("anchor_ill_conditioned")
     if thickness_assumed:
         degraded_reasons.append(f"thickness_clamped:{rec.thickness_clamp}")
+    if thickness_unmeasured:
+        degraded_reasons.append("thickness_below_depth_noise")
     if weak_model:
         degraded_reasons.append(f"weak_volume_model:{rec.method}")
     if not K.is_reliable:

@@ -8,76 +8,101 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from app.constants import VOXEL_GRID_N
+from app.constants import VIEW_ORDER, VOXEL_GRID_N
 from app.pipeline.card import CardGeometry
 from app.pipeline.exceptions import PipelineError
 from app.pipeline.geometry_project import sample_mask, world_mm_to_pixel_uv
+from app.pipeline.view_axes import view_world_intervals
 
 
 @dataclass
 class VolumeEstimate:
     V_hull_mm3: float
     multires_penalty: bool
-    volume_model: str  # slab_aabb | voxel_carve
+    volume_model: str  # slab_aabb | slab_aabb_fallback | voxel_carve | depth_2p5d
+    V_coarse_mm3: float | None = None
+    multires_rel_diff: float | None = None
+    grid_n: int | None = None
 
 
-def _intersect_1d(
-    current: tuple[float, float] | None, new: tuple[float, float]
-) -> tuple[float, float] | None:
-    lo, hi = new
-    if lo > hi:
-        lo, hi = hi, lo
+# 손각대 5뷰는 축 정렬이 완벽할 수 없다. 구간이 살짝 어긋난 정도는 중간값으로
+# 붙여 주고, 그 사실을 degraded 로 남긴다. 이 여유가 없으면 실사용에서
+# 정상 촬영도 ERR_VOLUME 으로 떨어진다.
+_INTERSECT_TOLERANCE = 0.35
+
+
+def _intersect_axis(
+    current: tuple[float, float] | None,
+    new: tuple[float, float],
+    axis: str,
+    view: str,
+    relaxed: list[str] | None = None,
+) -> tuple[float, float]:
+    """
+    누적 구간 ∩ 새 구간.
+
+    **교집합이 비면 즉시 `ERR_VOLUME`.** 이전 구현은 빈 교집합에 `None` 을 반환했는데,
+    다음 뷰 호출이 `None` 을 "아직 제약 없음"으로 오인해 자기 구간으로 덮어썼다.
+    그래서 서로 모순된 뷰가 에러 없이 통과하고 해당 제약이 통째로 사라졌다.
+    상세: `archimedes-v2-single-photo.mdc` §0.4 #3.
+    """
+    lo, hi = (new[0], new[1]) if new[0] <= new[1] else (new[1], new[0])
     if current is None:
         return (lo, hi)
-    a, b = current
-    lo2 = max(a, lo)
-    hi2 = min(b, hi)
+    lo2 = max(current[0], lo)
+    hi2 = min(current[1], hi)
     if lo2 >= hi2:
-        return None
+        # 얼마나 벌어졌나 — 두 구간 중 작은 폭 대비
+        gap = lo2 - hi2
+        span = min(current[1] - current[0], hi - lo)
+        if span > 0 and gap <= _INTERSECT_TOLERANCE * span:
+            mid = 0.5 * (lo2 + hi2)
+            half = 0.5 * max(span * (1.0 - _INTERSECT_TOLERANCE), 1e-3)
+            if relaxed is not None:
+                relaxed.append(f"{axis}:{view}")
+            return (mid - half, mid + half)
+        raise PipelineError(
+            "ERR_VOLUME",
+            f"'{view}' 컷이 다른 컷들과 {axis} 축에서 크게 어긋납니다. "
+            "각 슬롯에 맞는 각도의 사진인지(정면/상단/좌/우/후면), "
+            "그리고 5장이 같은 물체인지 확인해 주세요. "
+            f"(내부값 {current} ∩ ({lo:.2f}, {hi:.2f}) = 공집합)",
+            retry_step=view,
+            error_severity="soft",
+            suggested_action="retry_one_view",
+        )
     return (lo2, hi2)
 
 
 def slab_aabb_intervals_mm(
     bboxes: dict[str, tuple[float, float, float, float]],
+    relaxed_out: list[str] | None = None,
 ) -> tuple[tuple[float, float], tuple[float, float], tuple[float, float]]:
     """
-    bboxes[view] = (u_min, u_max, v_min, v_max) in mm — geometry_g1 규칙.
+    bboxes[view] = (u_min, u_max, v_min, v_max) in mm (`geometry_g1` 규칙)
+    → 월드 AABB (x, y, z) mm.
+
+    뷰→월드 축 매핑은 `view_axes.VIEW_AXIS_MAP` 단일 소스를 따른다.
     """
-    x_rng: tuple[float, float] | None = None
-    y_rng: tuple[float, float] | None = None
-    z_rng: tuple[float, float] | None = None
+    acc: dict[str, tuple[float, float] | None] = {"x": None, "y": None, "z": None}
+    relaxed = relaxed_out if relaxed_out is not None else []
 
-    if "front" in bboxes:
-        u0, u1, v0, v1 = bboxes["front"]
-        x_rng = _intersect_1d(x_rng, (u0, u1))
-        z_rng = _intersect_1d(z_rng, (v0, v1))
-    if "top" in bboxes:
-        u0, u1, v0, v1 = bboxes["top"]
-        x_rng = _intersect_1d(x_rng, (u0, u1))
-        y_rng = _intersect_1d(y_rng, (v0, v1))
-    if "left" in bboxes:
-        u0, u1, v0, v1 = bboxes["left"]
-        z_rng = _intersect_1d(z_rng, (u0, u1))
-        y_rng = _intersect_1d(y_rng, (v0, v1))
-    if "right" in bboxes:
-        u0, u1, v0, v1 = bboxes["right"]
-        z_rng = _intersect_1d(z_rng, (u0, u1))
-        y_rng = _intersect_1d(y_rng, (v0, v1))
-    if "back" in bboxes:
-        u0, u1, v0, v1 = bboxes["back"]
-        x_rng = _intersect_1d(x_rng, (u0, u1))
-        z_rng = _intersect_1d(z_rng, (v0, v1))
+    for view in VIEW_ORDER:
+        if view not in bboxes:
+            continue
+        for axis, interval in view_world_intervals(view, bboxes[view]).items():
+            acc[axis] = _intersect_axis(acc[axis], interval, axis, view, relaxed)
 
-    if x_rng is None or y_rng is None or z_rng is None:
+    missing = [a for a in ("x", "y", "z") if acc[a] is None]
+    if missing:
         raise PipelineError(
             "ERR_VOLUME",
-            "Could not intersect view bboxes — missing views?",
+            f"No view constrains world axis {missing} — missing views?",
             retry_step=None,
         )
-    dx = x_rng[1] - x_rng[0]
-    dy = y_rng[1] - y_rng[0]
-    dz = z_rng[1] - z_rng[0]
-    if dx <= 0 or dy <= 0 or dz <= 0:
+    x_rng, y_rng, z_rng = acc["x"], acc["y"], acc["z"]
+    assert x_rng is not None and y_rng is not None and z_rng is not None
+    if (x_rng[1] - x_rng[0]) <= 0 or (y_rng[1] - y_rng[0]) <= 0 or (z_rng[1] - z_rng[0]) <= 0:
         raise PipelineError("ERR_VOLUME", "Degenerate AABB after intersection", retry_step=None)
     return x_rng, y_rng, z_rng
 
@@ -137,79 +162,54 @@ def carve_visual_hull_mm3(
 
 
 def estimate_volume(
-    bboxes_fine: dict[str, tuple[float, float, float, float]],
-    bboxes_coarse: dict[str, tuple[float, float, float, float]] | None,
+    bboxes: dict[str, tuple[float, float, float, float]],
     penalty_ratio: float,
     *,
     use_carving: bool,
     view_items: list[tuple[str, np.ndarray, CardGeometry]] | None,
     grid_n: int,
 ) -> VolumeEstimate:
-    v_sl = volume_from_view_bboxes(bboxes_fine)
+    """
+    슬랩 AABB(항상) + 복셀 카빙(옵션) → V_hull, 그리고 **해상도 민감도** 판정.
+
+    다해상도 검사는 스펙 §8 대로 **동일 AABB 위에서 격자 N vs N/2** 를 비교한다.
+    이전 구현은 bbox 를 0.85배로 줄인 것을 "coarse" 로 삼아, 부피가 결정론적으로
+    ~0.61배가 되어 rel≈0.39 > 임계 0.12 → `multires_penalty` 가 **항상 True** 였다.
+    그 결과 tier 는 precision_boost 가 없으면 절대 high 가 되지 못했다.
+    """
+    v_sl = volume_from_view_bboxes(bboxes)
     if not use_carving or not view_items:
-        return _multires_only_slab(bboxes_fine, bboxes_coarse, penalty_ratio, v_sl)
+        # 슬랩 단독에는 격자 해상도 개념이 없다 → 해상도 페널티는 판정하지 않고,
+        # 모델 자체가 상한 근사라는 사실은 `volume_model` 로 신뢰도에 반영한다.
+        return VolumeEstimate(V_hull_mm3=v_sl, multires_penalty=False, volume_model="slab_aabb")
 
     gn = max(16, min(int(grid_n), 96))
-    v_carve = carve_visual_hull_mm3(view_items, bboxes_fine, gn)
-    if v_carve <= 0 or not np.isfinite(v_carve):
-        v_final = v_sl
-        model = "slab_aabb_fallback"
-    else:
-        # Visual hull ⊆ 슬랩 상자; 수치 오차 시 min
-        v_final = float(min(v_carve, v_sl))
-        model = "voxel_carve"
+    v_fine = carve_visual_hull_mm3(view_items, bboxes, gn)
+    if v_fine <= 0 or not np.isfinite(v_fine):
+        return VolumeEstimate(
+            V_hull_mm3=v_sl, multires_penalty=False, volume_model="slab_aabb_fallback"
+        )
 
+    # Visual hull ⊆ 슬랩 상자; 수치 오차 시 min
+    v_final = float(min(v_fine, v_sl))
+
+    gn_coarse = max(8, gn // 2)
+    v_coarse = carve_visual_hull_mm3(view_items, bboxes, gn_coarse)
+    rel: float | None = None
     pen = False
-    if bboxes_coarse and v_final > 0:
-        gn2 = max(16, gn // 2)
-        v_carve2 = carve_visual_hull_mm3(view_items, bboxes_coarse, gn2)
-        v_sl2 = volume_from_view_bboxes(bboxes_coarse)
-        v2 = float(min(v_carve2, v_sl2)) if v_carve2 > 0 else v_sl2
-        rel = abs(v_final - v2) / max(v_final, v2, 1.0)
+    if v_coarse > 0 and np.isfinite(v_coarse):
+        rel = abs(v_fine - v_coarse) / max(v_fine, v_coarse, 1.0)
         pen = rel > penalty_ratio
 
-    return VolumeEstimate(V_hull_mm3=v_final, multires_penalty=pen, volume_model=model)
-
-
-def _multires_only_slab(
-    bboxes_fine: dict[str, tuple[float, float, float, float]],
-    bboxes_coarse: dict[str, tuple[float, float, float, float]] | None,
-    penalty_ratio: float,
-    v_f: float,
-) -> VolumeEstimate:
-    if not bboxes_coarse:
-        return VolumeEstimate(V_hull_mm3=v_f, multires_penalty=False, volume_model="slab_aabb")
-    v_c = volume_from_view_bboxes(bboxes_coarse)
-    rel = abs(v_f - v_c) / max(v_f, v_c, 1.0)
     return VolumeEstimate(
-        V_hull_mm3=v_f,
-        multires_penalty=rel > penalty_ratio,
-        volume_model="slab_aabb",
+        V_hull_mm3=v_final,
+        multires_penalty=pen,
+        volume_model="voxel_carve",
+        V_coarse_mm3=float(v_coarse) if v_coarse > 0 else None,
+        multires_rel_diff=rel,
+        grid_n=gn,
     )
-
-
-def coarse_bboxes(
-    bboxes: dict[str, tuple[float, float, float, float]],
-    factor: float = 0.5,
-) -> dict[str, tuple[float, float, float, float]]:
-    out = {}
-    for k, (u0, u1, v0, v1) in bboxes.items():
-        uc = 0.5 * (u0 + u1)
-        vc = 0.5 * (v0 + v1)
-        hu = 0.5 * (u1 - u0) * factor
-        hv = 0.5 * (v1 - v0) * factor
-        out[k] = (uc - hu, uc + hu, vc - hv, vc + hv)
-    return out
 
 
 def grid_n_pair() -> tuple[int, int]:
     return VOXEL_GRID_N, VOXEL_GRID_N // 2
-
-
-# 하위 호환
-def volume_with_multires_check(
-    bboxes_fine: dict[str, tuple[float, float, float, float]],
-    bboxes_coarse: dict[str, tuple[float, float, float, float]] | None,
-    penalty_ratio: float,
-) -> VolumeEstimate:
-    return _multires_only_slab(bboxes_fine, bboxes_coarse, penalty_ratio, volume_from_view_bboxes(bboxes_fine))

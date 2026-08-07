@@ -1,26 +1,51 @@
 {
-  "version": 1,
-  "description": "복사하여 manifest.json 으로 저장하고 cases/ 에 5뷰 이미지를 둔다.",
+  "version": 2,
+  "description": "복사하여 manifest.json 으로 저장하고 cases/ 에 이미지를 둔다. v2 는 단일사진이 기본.",
+  "expect_rmse_g_max": 3.0,
+  "expect_depth_rmse_mm_max": 8.0,
   "cases": [
     {
-      "id": "example_ring_01",
-      "views": {
-        "front": "cases/example_ring_01/front.jpg",
-        "top": "cases/example_ring_01/top.jpg",
-        "left": "cases/example_ring_01/left.jpg",
-        "right": "cases/example_ring_01/right.jpg",
-        "back": "cases/example_ring_01/back.jpg"
-      },
+      "id": "ring_single_01",
+      "capture_mode": "single",
+      "image": "cases/ring_single_01/photo.jpg",
       "input": {
         "metal": "gold",
         "purity": "18k",
         "product_k": "ring"
       },
+      "actual_mass_g": 4.1,
       "expect": {
-        "mass_est_g_min": 2.0,
+        "mass_est_g_min": 1.5,
         "mass_est_g_max": 12.0,
         "tier_in": ["low", "medium", "high"]
       }
+    },
+    {
+      "id": "ring_multiview_01",
+      "capture_mode": "multiview",
+      "views": {
+        "front": "cases/ring_multiview_01/front.jpg",
+        "top": "cases/ring_multiview_01/top.jpg",
+        "left": "cases/ring_multiview_01/left.jpg",
+        "right": "cases/ring_multiview_01/right.jpg",
+        "back": "cases/ring_multiview_01/back.jpg"
+      },
+      "input": {
+        "metal": "platinum",
+        "purity": "pt950",
+        "product_k": "ring"
+      },
+      "expect": {
+        "mass_est_g_min": 2.0,
+        "mass_est_g_max": 20.0
+      }
+    },
+    {
+      "id": "no_card_rejected",
+      "capture_mode": "single",
+      "image": "cases/no_card_rejected/photo.jpg",
+      "input": { "metal": "gold", "purity": "24k", "product_k": "other" },
+      "expect_error": "ERR_CARD_NOT_FOUND"
     }
   ]
 }

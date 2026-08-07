@@ -2,18 +2,68 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 # ISO/IEC 7810 ID-1 (mm)
 ID1_WIDTH_MM: float = 85.60
 ID1_HEIGHT_MM: float = 53.98
 
-# Metal + purity -> rho (g/cm³) — document-level approximations
-RHO_G_CM3: dict[tuple[str, str], float] = {
-    ("gold", "24k"): 19.32,
-    ("gold", "18k"): 15.58,
-    ("gold", "14k"): 13.6,
-    ("silver", "sterling"): 10.49,
-    ("silver", "fine"): 10.49,
+
+@dataclass(frozen=True)
+class Material:
+    """금속·함량 1행. ρ 는 **문서용 근사**이며 합금 조성에 따라 달라진다."""
+
+    metal: str
+    purity: str
+    rho_g_cm3: float
+    label_ko: str
+    note: str = ""
+
+
+# 사용자가 고르는 (금속, 함량) → ρ (g/cm³).
+# ⚠️ project-concept §15.3: 운영 전 합금 규격·출처(버전)를 명문화해야 한다.
+#    특히 백금 합금(Ru/Ir/Co)은 조성별 편차가 커서 아래 값은 대표값일 뿐이다.
+MATERIALS: dict[tuple[str, str], Material] = {
+    ("gold", "24k"): Material("gold", "24k", 19.32, "순금 24K"),
+    ("gold", "22k"): Material("gold", "22k", 17.80, "22K", "합금 대표값"),
+    ("gold", "18k"): Material("gold", "18k", 15.58, "18K", "합금 대표값"),
+    ("gold", "14k"): Material("gold", "14k", 13.60, "14K", "합금 대표값"),
+    ("gold", "10k"): Material("gold", "10k", 11.60, "10K", "합금 대표값"),
+    ("silver", "fine"): Material("silver", "fine", 10.49, "순은 999"),
+    ("silver", "sterling"): Material("silver", "sterling", 10.36, "실버 925", "Ag92.5/Cu7.5"),
+    ("platinum", "pt999"): Material("platinum", "pt999", 21.45, "순백금 Pt999"),
+    ("platinum", "pt950"): Material("platinum", "pt950", 20.10, "백금 Pt950", "Pt95/Ru5 기준"),
+    ("platinum", "pt900"): Material("platinum", "pt900", 20.00, "백금 Pt900", "합금 대표값"),
 }
+
+# 입력 정규화 — 프런트·외부 호출이 보내는 표기 흔들림 흡수
+METAL_ALIASES: dict[str, str] = {
+    "gold": "gold", "au": "gold", "금": "gold",
+    "silver": "silver", "ag": "silver", "은": "silver",
+    "platinum": "platinum", "pt": "platinum", "백금": "platinum",
+}
+# 함량 표기는 금속마다 의미가 달라(예: "999" = 금 24K vs 은 fine) 금속별로 분리한다.
+PURITY_ALIASES: dict[str, dict[str, str]] = {
+    "gold": {
+        "24k": "24k", "999": "24k", "1000": "24k", "pure": "24k", "순금": "24k",
+        "22k": "22k", "916": "22k",
+        "18k": "18k", "750": "18k",
+        "14k": "14k", "585": "14k",
+        "10k": "10k", "417": "10k",
+    },
+    "silver": {
+        "sterling": "sterling", "925": "sterling", "s925": "sterling",
+        "fine": "fine", "999": "fine", "1000": "fine", "pure": "fine", "순은": "fine",
+    },
+    "platinum": {
+        "pt999": "pt999", "999": "pt999", "pt1000": "pt999", "pure": "pt999",
+        "pt950": "pt950", "950": "pt950",
+        "pt900": "pt900", "900": "pt900",
+    },
+}
+
+# 하위 호환 (기존 호출부·테스트)
+RHO_G_CM3: dict[tuple[str, str], float] = {k: m.rho_g_cm3 for k, m in MATERIALS.items()}
 
 # product_k -> (alpha_k, beta_k mm³)
 HOLLOW_ALPHA_BETA: dict[str, tuple[float, float]] = {
@@ -27,8 +77,25 @@ HOLLOW_ALPHA_BETA: dict[str, tuple[float, float]] = {
     "pendant": (0.38, 0.0),
     # 귀걸이: 실물 흔히 3–5g 전후인데 Hull이 수십~수백 g로 튀기 쉬움 → α·layout 둘 다 별도(실측·골든 필수)
     "earring": (0.042, 0.0),
+    # 골드바·골드카드: 꽉 찬 직육면체라 Visual Hull 과대가 거의 없다
+    "goldbar": (0.92, 0.0),
+    "plated": (1.0, 0.0),
     "other": (0.42, 0.0),
 }
+
+# 두께가 깊이 노이즈(실측 카드 홀드아웃 RMSE ~0.6mm)보다 얇아
+# **높이로 찾을 수 없는** 제품. 세그는 외형 경로로, 두께는 입력값으로 받는다.
+FLAT_PRODUCTS: frozenset[str] = frozenset({"goldbar", "plated"})
+
+# **제품 몸체 전체가 금이 아닌** 제품 (project-concept §6.2 골드필·도금).
+#
+# 세 가지가 들어간다. 어느 쪽이든 금 자체는 진짜여도 몸체 부피와 무관하다.
+#  - 봉입형: 따로 제련한 **순금 박·시트**를 아크릴·수지에 봉입 (금은 999)
+#  - 금박(골드필): 얇은 금층 압착   - 도금: 전기도금 코팅
+# 실측: "순금 0.05g" 봉입 카드 → 0.05g/19.32 = 2.59mm³.
+#       47×19mm 에 펴면 2.9μm. 몸체를 순금으로 치면 135배 차이.
+# 숫자를 내는 대신 이유를 설명하고 억제한다.
+VOLUME_UNMEASURABLE_PRODUCTS: frozenset[str] = frozenset({"plated"})
 
 # 소비자 귀금속 기준 “이 이상이면 수치 표시 의미 없음” 상한 (g) — runner sanity 게이트
 SANITY_MAX_MASS_G_BY_PRODUCT: dict[str, float] = {
@@ -39,6 +106,9 @@ SANITY_MAX_MASS_G_BY_PRODUCT: dict[str, float] = {
     "pendant": 45.0,
     # 일반 데일리 귀걸이 상한을 넘기면 표시 숨김(무거운 드롭 등은 추후 서브타입으로 완화)
     "earring": 16.0,
+    # 소비자용 골드바는 보통 수 g~수십 g. 1kg 바는 이 서비스 대상이 아니다.
+    "goldbar": 500.0,
+    "plated": 1e9,
     "other": 100.0,
 }
 
@@ -68,6 +138,69 @@ EARRING_LAYOUT_VOL_MULT_MED: float = 0.024
 EARRING_LAYOUT_VOL_MULT_LARGE: float = 0.055
 EARRING_LAYOUT_VOL_MULT_XL: float = 0.10
 
+# ── v2 depth 경로 (archimedes-v2-single-photo.mdc §4) ──
+#
+# V_2.5D = A_proj × h_eff 는 물체를 "단면이 일정한 기둥"으로 본다.
+# 실제 장신구는 단면이 둥글어(대략 타원) 부피가 π/4 ≈ 0.785 배쯤 작고,
+# 체인은 링크 사이 빈 공간이 더 많다. 아래 α 는 그 **물리적 근거**에서 출발한
+# 값이며, v1 의 α(예: earring 0.042)와 달리 버그 보정치가 아니다.
+# 실측이 쌓이면 §4.4 학습형 잔차로 대체한다.
+HOLLOW_ALPHA_BETA_DEPTH: dict[str, tuple[float, float]] = {
+    # ⚠️ 실측 보정값이다(2026-08-07). 순수 기하 근거는 0.80 이었으나 실측이 반증했다.
+    #
+    #   근거   도련님 14k 비즈 반지. 우리 추정 2.640g, 실제 약 1.2g → 비율 0.4545
+    #          0.80 × 0.4545 ≈ 0.36  (`scripts/calibration_suggest.py` 제안)
+    #   교차검증  구매가 20만원. 2.640g 이면 금속값만 291,920원(14k 110,559/g)이라
+    #          **금값보다 싸게 산 셈**이 되어 성립 불가. 1.2g 이면 1.51배로 소매가 자연스럽다.
+    #
+    #   한계   N=1 이고 저울 실측이 아니다. 그리고 이 값은 "반지는 대체로 속이 비어
+    #          있다"를 전제한다 — 실제로 로프·비즈 반지는 속 빈 관으로 만든다.
+    #          **속 찬 통선 반지는 이 값으로 과소 추정된다**(같은 사진의 가는 꼬임
+    #          반지가 1.199g → 0.545g 이 되는데, 속 찬 도넛 대비 24% 로 다소 낮다).
+    #          실측이 더 쌓이면 다시 조정할 것. 무엇보다 **속 빈 제품 여부를
+    #          사용자에게 받는 것**이 근본 해법이다 — 사진으로는 구분할 수 없다.
+    "ring": (0.36, 0.0),
+    "necklace": (0.65, 0.0),
+    "chain": (0.60, 0.0),
+    "bracelet": (0.70, 0.0),
+    "pendant": (0.75, 0.0),
+    "earring": (0.70, 0.0),
+    # 골드바는 단면이 둥글지 않다 — 측정한 부피가 곧 금속 부피다.
+    # 모서리 라운딩·각인 정도만 감안해 1.0 바로 아래.
+    "goldbar": (0.98, 0.0),
+    # 형식상 자리만 — 이 카테고리는 무게를 내지 않는다
+    "plated": (1.0, 0.0),
+    "other": (0.75, 0.0),
+}
+
+# 가시 두께 h_vis 의 물리적 하한·상한 (mm).
+# 하한: 접사 깊이 노이즈로 h_vis 가 0 에 붙는 것을 막는다.
+# 상한: 깊이 이상치가 부피를 폭주시키는 것을 막는다.
+# 둘 다 **물리적 클램프**이며 적용 시 meta 에 플래그로 남긴다(조용히 깎지 않는다).
+MIN_THICKNESS_MM_BY_PRODUCT: dict[str, float] = {
+    "ring": 1.0,
+    "necklace": 0.8,
+    "chain": 0.8,
+    "bracelet": 1.0,
+    "pendant": 0.8,
+    "earring": 0.6,
+    # 1g 골드카드가 0.3mm 수준. 깊이로는 못 재고 입력값을 받아야 한다.
+    "goldbar": 0.2,
+    "plated": 0.2,
+    "other": 0.8,
+}
+MAX_THICKNESS_MM_BY_PRODUCT: dict[str, float] = {
+    "ring": 9.0,
+    "necklace": 12.0,
+    "chain": 12.0,
+    "bracelet": 14.0,
+    "pendant": 12.0,
+    "earring": 10.0,
+    "goldbar": 12.0,
+    "plated": 25.0,
+    "other": 25.0,
+}
+
 # Prior mass ranges (g) for tier demotion — soft only (§6.4)
 PRIOR_MASS_G: dict[str, tuple[float, float]] = {
     "ring": (1.5, 12.0),
@@ -77,6 +210,9 @@ PRIOR_MASS_G: dict[str, tuple[float, float]] = {
     "pendant": (2.0, 25.0),
     # 대부분 3–5g대; 드롭·후크 무거운 편은 8–12g까지도 있음
     "earring": (0.8, 12.0),
+    # 3.75g(한돈)·10g·37.5g(십돈) 등이 흔하다
+    "goldbar": (0.5, 400.0),
+    "plated": (0.0001, 1000.0),
     "other": (1.0, 80.0),
 }
 

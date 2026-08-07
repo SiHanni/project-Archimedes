@@ -34,16 +34,14 @@ from app.constants import (
     LAYOUT_VOL_MULT_XL,
     VIEW_ORDER,
 )
-from app.pipeline.card import CardGeometry
+from app.pipeline.card import CardGeometry, card_edge_lengths_px
 
 _CHAIN_LIKE = frozenset({"necklace", "chain", "bracelet"})
 
 
 def _card_width_px(card: CardGeometry) -> float:
-    q = card.quad_px.astype(np.float32)
-    w_top = float(np.linalg.norm(q[1] - q[0]))
-    w_bot = float(np.linalg.norm(q[2] - q[3]))
-    return max(0.5 * (w_top + w_bot), 1.0)
+    """카드 긴 변(ID-1 85.60mm 축) 픽셀 길이 — `card.card_edge_lengths_px` 와 단일 소스."""
+    return max(card_edge_lengths_px(card.quad_px)[0], 1.0)
 
 
 def jewel_to_card_size_ratios(

@@ -28,7 +28,7 @@ _WORKER = Path(__file__).resolve().parents[1]
 if str(_WORKER) not in sys.path:
     sys.path.insert(0, str(_WORKER))
 
-from app.constants import HOLLOW_ALPHA_BETA  # noqa: E402
+from app.constants import HOLLOW_ALPHA_BETA, HOLLOW_ALPHA_BETA_DEPTH  # noqa: E402
 
 
 def main() -> int:
@@ -63,7 +63,7 @@ def main() -> int:
         print("No feedback rows joined to completed jobs. POST /v1/jobs/:id/feedback first.")
         return 0
 
-    by_k: dict[str, list[float]] = {}
+    by_k: dict[tuple[str, bool], list[float]] = {}
     for r in rows:
         inp = r["input_json"]
         out = r["result_json"]
@@ -78,15 +78,26 @@ def main() -> int:
         if m_est is None or m_est <= 0 or m_act <= 0:
             continue
         k = str(inp.get("product_k", "other")).lower()
-        by_k.setdefault(k, []).append(m_act / float(m_est))
+        # ⚠️ α 표가 둘이다. v1(다뷰 복셀)은 `HOLLOW_ALPHA_BETA`, v2(단일사진 깊이)는
+        #    `HOLLOW_ALPHA_BETA_DEPTH` 를 쓴다. 어느 쪽으로 계산된 결과인지 보지 않고
+        #    v1 표만 읽으면 **엉뚱한 기준으로 제안**하게 된다(실측: ring 0.58 로 읽어
+        #    0.264 를 제안했는데 실제 v2 기준은 0.80 → 0.364 였다).
+        method = ((out.get("meta") or {}).get("reconstruction") or {}).get("method", "")
+        depth_path = method in ("height_field", "measured_area_given_thickness")
+        by_k.setdefault((k, depth_path), []).append(m_act / float(m_est))
 
     print("--- Suggested α_k multipliers (median(m_actual/m_est)), N per category ---")
     print("(Apply manually to constants / DB; do not auto-write without review §14.4)\n")
-    for k, ratios in sorted(by_k.items()):
+    for (k, depth_path), ratios in sorted(by_k.items()):
+        table = HOLLOW_ALPHA_BETA_DEPTH if depth_path else HOLLOW_ALPHA_BETA
+        name = "DEPTH(v2)" if depth_path else "VOXEL(v1)"
         med = statistics.median(ratios)
-        old_a = HOLLOW_ALPHA_BETA.get(k, HOLLOW_ALPHA_BETA["other"])[0]
+        old_a = table.get(k, table["other"])[0]
         suggested = old_a * med
-        print(f"  product_k={k!r}  N={len(ratios)}  median_ratio={med:.4f}  current_alpha={old_a:.4f}  suggested_alpha≈{suggested:.4f}")
+        print(
+            f"  product_k={k!r} [{name}]  N={len(ratios)}  median_ratio={med:.4f}  "
+            f"current_alpha={old_a:.4f}  suggested_alpha≈{suggested:.4f}"
+        )
     return 0
 
 

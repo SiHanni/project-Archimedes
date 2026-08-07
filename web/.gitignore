@@ -1,1 +1,5 @@
 .vercel
+# Vercel CLI 가 만드는 로컬 토큰 파일 — 절대 커밋 금지
+.env*
+# 단, 공유용 예시는 추적한다
+!.env.example

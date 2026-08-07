@@ -71,6 +71,16 @@ services:
       <<: *app_db
       ALGORITHM_VERSION: archimedes-g1-v0.1.0-scaffold
       WORKER_OUTPUT_DIR: /output
+      ARCHIMEDES_DEPTH_BACKEND: ${ARCHIMEDES_DEPTH_BACKEND:-stub}
+      ARCHIMEDES_DEPTH_MODEL_FILE: ${ARCHIMEDES_DEPTH_MODEL_FILE:-depth.onnx}
+      # 거리 추정용 metric depth. **초점거리 추정에만** 쓴다(절대깊이는 실측 10배 과대).
+      ARCHIMEDES_DEPTHPRO_DIR: ${ARCHIMEDES_DEPTHPRO_DIR:-}
+      ARCHIMEDES_DEPTHPRO_FILE: ${ARCHIMEDES_DEPTHPRO_FILE:-model_quantized.onnx}
+      ARCHIMEDES_DEPTH_OUTPUT_KIND: ${ARCHIMEDES_DEPTH_OUTPUT_KIND:-affine_invariant}
+      ARCHIMEDES_ONNX_MODEL_DIR: /models
+      ARCHIMEDES_OBJECT_SIDE: ${ARCHIMEDES_OBJECT_SIDE:-left}
+      ARCHIMEDES_OCR_BACKEND: ${ARCHIMEDES_OCR_BACKEND:-rapidocr}
+      ARCHIMEDES_SAVE_SEG_ASSETS: ${ARCHIMEDES_SAVE_SEG_ASSETS:-1}
     depends_on:
       mysql:
         condition: service_healthy
@@ -84,6 +94,8 @@ services:
       - "28000:8000"
     volumes:
       - worker_output:/output
+      # 가중치는 이미지에 굽지 않는다 — scripts/fetch-models.sh 로 받아 마운트
+      - ./models:/models:ro
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
   worker-consumer:
@@ -95,6 +107,16 @@ services:
       ALGORITHM_VERSION: archimedes-g1-v0.1.0-scaffold
       WORKER_OUTPUT_DIR: /output
       ARCHIMEDES_MODE: consumer
+      ARCHIMEDES_DEPTH_BACKEND: ${ARCHIMEDES_DEPTH_BACKEND:-stub}
+      ARCHIMEDES_DEPTH_MODEL_FILE: ${ARCHIMEDES_DEPTH_MODEL_FILE:-depth.onnx}
+      # 거리 추정용 metric depth. **초점거리 추정에만** 쓴다(절대깊이는 실측 10배 과대).
+      ARCHIMEDES_DEPTHPRO_DIR: ${ARCHIMEDES_DEPTHPRO_DIR:-}
+      ARCHIMEDES_DEPTHPRO_FILE: ${ARCHIMEDES_DEPTHPRO_FILE:-model_quantized.onnx}
+      ARCHIMEDES_DEPTH_OUTPUT_KIND: ${ARCHIMEDES_DEPTH_OUTPUT_KIND:-affine_invariant}
+      ARCHIMEDES_ONNX_MODEL_DIR: /models
+      ARCHIMEDES_OBJECT_SIDE: ${ARCHIMEDES_OBJECT_SIDE:-left}
+      ARCHIMEDES_OCR_BACKEND: ${ARCHIMEDES_OCR_BACKEND:-rapidocr}
+      ARCHIMEDES_SAVE_SEG_ASSETS: ${ARCHIMEDES_SAVE_SEG_ASSETS:-1}
     depends_on:
       mysql:
         condition: service_healthy
@@ -106,6 +128,7 @@ services:
         condition: service_completed_successfully
     volumes:
       - worker_output:/output
+      - ./models:/models:ro
     command: ["python", "-m", "app.consumer"]
     restart: unless-stopped
 
@@ -116,6 +139,20 @@ services:
     environment:
       <<: *app_db
       PORT: 3000
+      # 시세·견적 (계획서 Step 2-1). 로컬 기본은 고정 표 — 항상 stale 로 표시된다.
+      #
+      # **팔 때(매입) 시세** 2026-08-07, 순도 999 기준 g당:
+      #   금 188,800(1돈 708,000) · 은 2,645 · 백금 74,933
+      # 나머지 함량은 순도비(999 기준)로 환산한 근사다. 실거래 매입가는 함량마다
+      # 마진이 따로 붙으므로 정확한 값을 알게 되면 키별로 덮어쓸 것.
+      PRICE_BACKEND: ${PRICE_BACKEND:-static}
+      PRICE_TABLE_KRW_PER_GRAM: ${PRICE_TABLE_KRW_PER_GRAM:-{"gold:24k":188800,"gold:22k":173114,"gold:18k":141742,"gold:14k":110559,"gold:10k":78808,"silver:fine":2645,"silver:sterling":2449,"platinum:pt999":74933,"platinum:pt950":71258,"platinum:pt900":67507}}
+      # 고정 표가 **언제 기준인지**. 없으면 조회 시각을 쓰게 되어 오늘 시세인 척한다.
+      PRICE_TABLE_AS_OF: ${PRICE_TABLE_AS_OF:-2026-08-07}
+      PRICE_API_URL: ${PRICE_API_URL:-}
+      PRICE_API_KEY: ${PRICE_API_KEY:-}
+      # 입력값이 이미 '팔 때' 시세라 추가 매입률을 곱하지 않는다
+      PRICE_BUY_RATE: ${PRICE_BUY_RATE:-1}
     depends_on:
       mysql:
         condition: service_healthy

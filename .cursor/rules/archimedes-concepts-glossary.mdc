@@ -137,6 +137,7 @@ alwaysApply: false
 
 | 주제 | 파일 |
 |------|------|
+| **v2 코어(단일사진·깊이추정·스케일 융합)** | `archimedes-v2-single-photo.mdc` |
 | 제품·UX·밀도·prior | `project-concept.mdc` |
 | 단계별 구현 | `archimedes-implementation-plan.mdc` |
 | 복셀·Precision·세그·multer | `archimedes-technical-extensions.mdc` |

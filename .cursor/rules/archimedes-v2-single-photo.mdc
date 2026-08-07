@@ -1,0 +1,275 @@
+---
+description: Archimedes v2 — 단일 사진 + 세그멘테이션 + 단안 깊이추정 기반 중량·견적 추정 (연구개발계획서 반영)
+alwaysApply: true
+---
+
+# Archimedes v2 — 단일 사진 · Depth 기반 중량 추정
+
+**본 문서가 v2 파이프라인의 단일 스펙 소스다.** 제품 컨셉·물성·면책·운영(§11·§17·§18)은 `project-concept.mdc` 를 계속 따르고, 본 문서는 **부피·스케일 추정 코어**만 대체한다.
+
+---
+
+## 0. 왜 바꾸는가 (v1 → v2)
+
+### 0.1 배경
+
+연구개발계획서(2023 작성) **② AI 매칭 솔루션**의 기술 축:
+
+| 계획서 | 내용 |
+|--------|------|
+| Step 1 | 객체 인식(YOLO) → 분할(SAM) **세미-오토 라벨링** → (사진, 품목, 중량) 데이터셋 |
+| Step 2-1 | 귀금속 영역 + **거리 정보** → 실제 크기 → 함량 결합 → 중량 → 실시간 시세 결합 → 예상 견적 |
+| Step 2-2 | **깊이 추정 모델** + 카메라 내부 파라미터 → xyz 변환 → 3D 포인트 → 객체 크기 |
+| 평가 | 거리정확도·매칭 모델을 **RMSE** 로 평가 |
+
+v1은 **신용카드 호모그래피 + 5뷰 Visual Hull** 로 스케일과 부피를 얻었다. v2는 **단안 깊이추정**으로 스케일을 얻는다.
+
+### 0.2 v1 코어를 폐기하지 않는 이유
+
+v1 카드 경로는 **버리지 않고 "메트릭 앵커"로 강등·재활용**한다. 근거:
+
+- 단안 metric depth는 **접사 소물체**(반지·귀걸이)에서 절대 스케일이 흔들린다. 실내 장면 위주 학습 분포 밖이다.
+- **크기 오차는 부피에서 3제곱으로 증폭**된다. 거리 10% 오차 → 부피·중량 33% 오차. `project-concept.mdc` §1.5 가 "±30%면 51만 원 폭"이라고 규정한 바로 그 지점이다.
+- 카드가 프레임에 있으면 **depth의 (scale, shift)를 닫힌 형태로 보정**할 수 있다(§3). 계획서를 부정하지 않고 정확도만 올린다.
+
+→ **앵커 있음 = 고신뢰 모드, 앵커 없음 = 기본 모드 + tier 상한.**
+
+### 0.3 v1에서 계승·폐기 목록
+
+| v1 자산 | v2 처리 |
+|---------|---------|
+| `card.py` 카드 검출·호모그래피 | **계승** — 스케일 앵커 + 자체 depth 정확도 계측기(§7.1) |
+| `voxel.py` 복셀 카빙 | **계승** — 다뷰 옵션 모드에서만 사용 |
+| `geometry_g1.py` / `geometry_project.py` | **계승(수정 후)** — 다뷰 모드 전용 |
+| `hollow.py` α_k·β_k | **계승** — depth도 2.5D라 속 빈 부분은 못 본다(§4.3) |
+| `confidence.py` tier·prior | **계승** — 입력 신호만 교체 |
+| `jewel_layout.py` 버킷 보정 | **폐기** — 스케일이 실측되면 존재 이유가 없다(§0.4) |
+| `segment.py` Otsu 휴리스틱 | **강등** — `Segmenter` 백엔드의 폴백 구현으로 흡수 |
+
+### 0.4 v1에서 발견된 결함 (v2 착수 전 반드시 수정)
+
+v2 앵커 경로가 v1 카드 코드를 재사용하므로 **아래는 선행 수정 대상**이다.
+
+| # | 결함 | 위치 | 내용 |
+|---|------|------|------|
+| 1 | **σ가 상수 0.1 mm/px** | `card.py` `warp_card_and_sigma` | `σ = ID1_WIDTH_MM / dst_w` 인데 `dst_w`는 우리가 고른 워프 캔버스 폭(856)이라 **항상 0.1**. 그런데 이 σ를 **원본 이미지 픽셀**에 곱한다 → 단위 불일치. 카드가 크게 찍히든 작게 찍히든 스케일이 같다. |
+| 2 | **좌/우 뷰 축 스왑** | `geometry_g1.py`, `geometry_project.py` | 옆에서 찍으면 이미지 세로축이 높이(z)인데 코드는 가로를 z, 세로를 y로 매핑. 시선 −x̂ · up +ẑ 이면 image-right=+y, image-up=+z 이므로 **u~y, v~z** 가 맞다. |
+| 3 | **빈 교집합이 조용히 되살아남** | `voxel.py` `_intersect_1d` | 교집합이 비면 `None` 을 반환하는데, 다음 뷰 호출이 `None` 을 "제약 없음"으로 오인해 자기 구간으로 덮어쓴다. 모순된 뷰가 에러 없이 통과한다. |
+| 4 | **EXIF orientation 미적용** | `ingest.py` | orientation을 읽어 meta에 넣기만 하고 회전은 적용하지 않는다. `cv2.imdecode` 는 자동회전하지 않으므로 실제 폰 사진에서 축 매핑이 통째로 어긋난다. |
+| 5 | σ 일관성 게이트가 死 | `runner.py` `_check_sigma_consistency` | #1 때문에 σ가 전부 동일해 **절대 발동하지 않는다**. #1을 고쳐야 게이트가 살아난다. |
+
+**#1의 1차 원인은 문서다**: `archimedes-implementation-plan.mdc` §2.1 이 *"σ = ID-1 가로(mm) / **워프 후** 카드 픽셀 너비"* 라고 규정했고 코드는 그대로 구현했다. **문서와 코드를 함께 정정**한다.
+
+올바른 정의:
+
+$$\sigma_i = \frac{\text{ID1\_WIDTH\_MM}}{\text{원본 이미지에서의 카드 폭(px)}}$$
+
+---
+
+## 1. v2 파이프라인 (정본)
+
+```
+사진 1장 (+ 선택: 추가 뷰)
+ ①  전처리        EXIF 회전 · 정규화 · 리사이즈 · 디노이징            [계획서 ①]
+ ②  품질 게이트    해상도 · 블러 · 노출                               [v1 계승]
+ ③  검출          Detector → 귀금속 박스 (+ 앵커 박스)                [계획서 Step 1 / ②]
+ ④  분할          Segmenter (box prompt) → 정밀 외곽선 마스크          [계획서 Step 1 / ②]
+ ⑤  깊이          DepthEstimator → per-pixel 깊이 D̂                  [계획서 Step 2-2 Fig.1]
+ ⑥  내부 파라미터  EXIF 초점거리 → K, 없으면 기기 프리셋               [계획서 Step 2-2]
+ ⑦  스케일 융합    앵커(카드) 실측 ↔ D̂ → (s, t) 추정 → D 보정   ★v2 차별점 (§3)
+ ⑧  역투영        마스크 ⊗ D ⊗ K⁻¹ → 3D 포인트 → 실치수             [계획서 Step 2-2 Fig.2·3]
+ ⑨  부피·중량      2.5D 부피 → α_k Hollow → ρ(금속·함량) → mass_est   (§4)
+ ⑩  견적·신뢰도    실시간 시세 API × 중량, tier 게이팅, mass_range     [계획서 Step 2-1]
+```
+
+**금속·함량은 사용자 입력이다.** 이미지로 14K/18K를 판별하는 것은 물리적으로 신뢰할 수 없다. 색상 신호는 **입력값과의 모순 경고**까지만 쓰고, 예측이라고 표기하지 않는다.
+
+---
+
+## 2. 백엔드 인터페이스 (교체 가능 구조)
+
+세 축을 **Protocol**로 분리해 모델 교체가 파이프라인을 건드리지 않게 한다.
+
+| 축 | Protocol | 구현 |
+|----|----------|------|
+| 검출 | `Detector.detect(bgr) -> list[Detection]` | `stub`(전체 프레임) / `onnx`(YOLO 계열) |
+| 분할 | `Segmenter.segment(bgr, box) -> Mask` | `heuristic`(v1 Otsu) / `onnx`(SAM 계열) / `rembg` |
+| 깊이 | `DepthEstimator.estimate(bgr) -> DepthMap` | `stub`(평면 가정) / `onnx`(metric depth) |
+
+**런타임 기준: ONNX Runtime + 경량 모델(CPU).** 현재 compose 스택이 CPU 전용이고, GPU 없이도 컨테이너 안에서 재현 가능해야 하기 때문. 모델 파일은 이미지에 굽지 않고 **볼륨/오브젝트 스토리지에서 주입**한다(이미지 비대화 방지).
+
+`DepthMap` 은 **자기 자신이 metric 인지 affine-invariant 인지**를 표기한다. 후자는 §3의 (s,t) 추정이 필수다.
+
+### 환경변수
+
+| 변수 | 기본 | 설명 |
+|------|------|------|
+| `ARCHIMEDES_CAPTURE_MODE` | `single` | `single` \| `multiview` |
+| `ARCHIMEDES_DETECTOR_BACKEND` | `stub` | `stub` \| `onnx` |
+| `ARCHIMEDES_SEGMENTER_BACKEND` | `heuristic` | `heuristic` \| `onnx` \| `rembg` |
+| `ARCHIMEDES_DEPTH_BACKEND` | `stub` | `stub` \| `onnx` |
+| `ARCHIMEDES_ONNX_MODEL_DIR` | `/models` | ONNX 가중치 마운트 경로 |
+| `ARCHIMEDES_REQUIRE_ANCHOR` | `0` | `1`이면 앵커 없는 job을 `ERR_SCALE_UNRESOLVED` 로 거절 |
+
+---
+
+## 3. 스케일 융합 (v2의 핵심)
+
+### 3.1 모델
+
+깊이 모델 출력 $\hat{D}$ 와 참 깊이 $D$ 의 관계를 **아핀**으로 둔다.
+
+$$D(p) = s \cdot \hat{D}(p) + t$$
+
+- **metric 모델**: 이상적으로 $s\approx1,\ t\approx0$ 이지만 접사에서 드리프트한다.
+- **affine-invariant 모델**: $s,t$ 가 애초에 미정이다.
+
+### 3.2 앵커로 (s, t) 풀기
+
+1. 카드 쿼드 4점 + ID-1 실측 치수 + $K$ 로 **PnP** → 카드 평면의 6-DoF 포즈.
+2. 포즈에서 카드 영역 픽셀들의 **참 깊이** $D_{\text{card}}(p_i)$ 를 해석적으로 계산.
+3. 카드 영역에서 최소제곱:
+
+$$(s^\*, t^\*) = \arg\min_{s,t} \sum_i \bigl(s\,\hat{D}(p_i) + t - D_{\text{card}}(p_i)\bigr)^2$$
+
+4. 전체 깊이맵에 $(s^\*,t^\*)$ 적용.
+
+**앵커가 없으면**: metric 모델은 $s{=}1,t{=}0$ 으로 그대로 쓰고 `confidence_tier` 상한을 `medium` 으로 캡한다. affine-invariant 모델은 스케일을 복원할 수 없으므로 `ERR_SCALE_UNRESOLVED`.
+
+### 3.3 내부 파라미터 K
+
+우선순위:
+
+1. EXIF `FocalLengthIn35mmFilm`(태그 41989) → $f_{px} = f_{35} \cdot W_{px} / 36.0$
+2. EXIF `FocalLength`(37386) + 기기별 센서 폭 → $f_{px} = f_{mm} \cdot W_{px} / w_{sensor}$
+3. 기기 모델 프리셋 테이블 (`project-concept.mdc` §15.1)
+4. 최후 폴백 $f_{px} \approx 1.15 \cdot \max(W,H)$ → 이 경우 tier 하향
+
+주점은 $(c_x,c_y)=(W/2,\,H/2)$ 로 둔다.
+
+---
+
+## 4. 부피 산출 (2.5D 의 정직한 처리)
+
+### 4.1 실치수
+
+역투영으로 얻은 마스크 내부 3D 포인트에서:
+
+$$X = \frac{(u-c_x)Z}{f_x},\quad Y = \frac{(v-c_y)Z}{f_y},\quad Z = D(u,v)$$
+
+- $A_{\text{proj}}$ : 투영 실면적 (mm²)
+- $L \times W$ : 주축 정렬 후 실치수 (mm)
+- $h_{\text{vis}}$ : 마스크 내 깊이 범위 (mm) — **가시면 두께**
+
+### 4.2 부피 근사
+
+$$V_{\text{2.5D}} = A_{\text{proj}} \cdot h_{\text{eff}}, \qquad h_{\text{eff}} = \max\bigl(h_{\text{vis}},\ t_{\min,k}\bigr)$$
+
+$t_{\min,k}$ 는 제품 형태별 최소 두께 하한(상수). 접사에서 depth 노이즈로 $h_{\text{vis}}$ 가 0에 붙는 것을 막는다.
+
+### 4.3 Hollow 는 여전히 필요하다
+
+**깊이는 보이는 면만 준다.** 반지 안쪽 구멍, 속 빈 장식, 뒷면은 한 장으로 복원되지 않는다. 따라서 v1 수식을 그대로 유지한다.
+
+$$V_{\text{adj}} = \alpha_k \cdot V_{\text{2.5D}} + \beta_k, \qquad m = \rho(\text{금속},\text{함량}) \cdot V_{\text{adj}} / 10^3$$
+
+**단, v1의 α_k 값은 그대로 쓰면 안 된다.** 현재 값(예: `earring` α=0.042)은 §0.4 #1·#2 버그를 흡수하려고 사후에 맞춘 숫자다. **스케일 정상화 후 전량 재산정**한다.
+
+`jewel_layout.py` 의 버킷 계단 보정은 **제거**한다. 경계마다 무게가 1.8~3.1배 점프해 §1.5 목표와 양립할 수 없고, 스케일이 실측되면 애초에 불필요하다.
+
+### 4.4 학습형 이행 (계획서 Step 2-1)
+
+(사진, 품목, 함량, **실측 중량**) 쌍이 쌓이면 물리식을 버리지 않고 **잔차를 학습**한다.
+
+$$m_{\text{final}} = m_{\text{physics}} \cdot g_\theta(\text{feature})$$
+
+feature = {$A_{\text{proj}}$, $L$, $W$, $h_{\text{vis}}$, 마스크 형상 기술자, 제품 형태, 함량, 앵커 유무}.
+
+물리식을 베이스로 두면 **데이터가 적을 때도 붕괴하지 않고**, 데이터가 늘수록 $g_\theta$ 가 α_k 수동 튜닝을 대체한다. 데이터 수집 경로는 이미 구현되어 있다(`mass_feedback` 테이블 · `POST /v1/jobs/:id/feedback` · `calibration_suggest.py`).
+
+---
+
+## 5. 다뷰 모드 (옵션)
+
+`capture_mode=multiview` 면 v1 경로를 쓰되 **정상화된 σ**로 돌린다.
+
+- 뷰별 depth → 스케일 융합 → 복셀 카빙(`voxel.py`)
+- 또는 depth 없이 카드 σ 만으로 기존 카빙 (§0.4 수정 후)
+
+대외 서사: *"단일 사진에서 시작해 다뷰까지 확장 가능한 구조"*.
+
+---
+
+## 6. 에러 코드 (v1 표에 추가)
+
+| 코드 | 조건 | 사용자 액션 |
+|------|------|-------------|
+| `ERR_NO_OBJECT` | 검출기가 귀금속 후보를 못 찾음 | 물체가 프레임 중앙에 크게 보이도록 재촬영 |
+| `ERR_DEPTH_FAILED` | 깊이 추론 실패·전부 NaN | 재시도, 반복되면 다른 사진 |
+| `ERR_SCALE_UNRESOLVED` | 앵커 없음 + 스케일 복원 불가 | 신용카드를 같은 바닥에 함께 놓고 재촬영 |
+| `ERR_ANCHOR_AMBIGUOUS` | 앵커 후보 다수·포즈 불안정 | 카드 1장만, 가려지지 않게 |
+
+---
+
+## 7. 평가 (계획서 평가표 대응)
+
+### 7.1 거리 정확도 — 앵커가 곧 계측기
+
+**카드가 프레임에 있으면 그 영역의 참 깊이를 우리가 안다.** 따라서 **매 job 마다** 별도 groundtruth 수집 없이 깊이 오차를 잴 수 있다.
+
+$$\text{RMSE}_{\text{depth}} = \sqrt{\frac{1}{n}\sum_i \bigl(D(p_i) - D_{\text{card}}(p_i)\bigr)^2}\ \ [\text{mm}]$$
+
+카드 영역을 **holdout(융합에 안 쓴 절반)** 으로 나누면 과적합 없는 추정이 된다. 결과 `meta.depth_eval` 에 적재하고 대시보드로 집계한다.
+
+### 7.2 중량 정확도
+
+`mass_feedback` 기준 $\text{RMSE}_{\text{mass}}$ (g) 와 MAPE(%). 제품 형태별로 분리 집계.
+
+### 7.3 골든 세트
+
+`golden/manifest.json` 의 기대값을 구간 판정에서 **RMSE 집계**로 확장한다. 기존 하네스(`test_golden_manifest.py`)를 그대로 쓴다.
+
+---
+
+## 8. 데이터·모델 로드맵 (계획서 Step 1)
+
+| 단계 | 내용 | 현재 상태 |
+|------|------|-----------|
+| 수집 API | job + 실측 중량 적재 | **구현 완료** (`POST /v1/jobs/:id/feedback`, `mass_feedback`) |
+| 평가 지표 | 중량 RMSE·MAPE·bias, 거리 RMSE | **구현 완료** (`app/eval/`, `scripts/evaluate_rmse.py`, 골든 집계) |
+| 파이프라인 골격 | 검출·분할·깊이 백엔드 교체 구조 | **구현 완료** (`pipeline/backends/`, ONNX 계약 검증 포함) |
+| 실제 모델 | YOLO/SAM/metric depth ONNX 가중치 | **미탑재** — 벤치마크 후 선정 |
+| 세미-오토 라벨링 | 검출 → 분할 → 사람 검수 → 마스크 저장 | 미구현 |
+| 속성화 | (사진, 품목, 함량, 중량, 마스크) 데이터셋 | 스키마만 존재 |
+| 잔차 학습 | §4.4 $g_\theta$ | 데이터 확보 후 |
+
+### 8.1 구현 상태 요약 (이 레포)
+
+| 항목 | 상태 | 위치 |
+|------|------|------|
+| §0.4 v1 결함 5건 | **수정 완료** | `view_axes.py`, `card.py`, `voxel.py`, `ingest.py` |
+| §3 스케일 융합 | **구현 완료** | `scale_fusion.py` |
+| §3.3 내부 파라미터 K | **구현 완료** (기기 프리셋 표는 비어 있음) | `camera.py` |
+| §4 2.5D 부피 | **구현 완료** (height_field / prism_pca) | `reconstruct.py` |
+| §5 다뷰 모드 | **구현 완료** | `runner._run_multiview` |
+| §6 에러 코드 | **구현 완료** | 각 모듈 `PipelineError` |
+| §7 평가 | **구현 완료** | `app/eval/`, `tests/test_golden_manifest.py` |
+
+**표본이 없는 동안은 절대 오차%를 주장하지 않는다.** 재현성·실패율·tier 분포를 먼저 본다(`archimedes-accuracy-data-playbook.mdc` §4).
+
+---
+
+## 9. 알려진 리스크
+
+| 리스크 | 완화 |
+|--------|------|
+| 접사 소물체 metric depth 부정확 | 앵커 융합 필수(§3), 앵커 없으면 tier 캡 |
+| 금속 반사(스펙큘러) — depth·seg 모두 취약 | 확산광 가이드, 하이라이트 영역 신뢰도 가중 하향 |
+| 2.5D → 부피 비유일성 | α_k 유지 + 학습형 잔차(§4.4), 다뷰 모드 제공 |
+| CPU 추론 지연 | 경량 ONNX, 비동기 job(이미 구현), 큐 depth 알람 |
+| 데이터 0건 | Step 1을 선행 마일스톤으로 (§8) |
+| 함량을 예측으로 오인 | UI·문서에서 **입력값**임을 고정 표기 |
+
+---
+
+*본 문서는 v2 부피·스케일 코어의 단일 소스다. 제품·법무·운영은 `project-concept.mdc`, 실행·포트는 `archimedes-runbook.mdc`, 용어는 `archimedes-concepts-glossary.mdc` 를 따른다.*

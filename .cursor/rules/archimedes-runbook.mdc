@@ -153,8 +153,15 @@ pytest -m slow            # OpenCV 합성 1뷰 체인
 
 | 변수 | 기본 | 설명 |
 |------|------|------|
-| `ARCHIMEDES_USE_VOXEL_CARVE` | `1` | `0`이면 슬랩 AABB만 |
-| `ARCHIMEDES_SEGMENTATION_BACKEND` | `heuristic` | `rembg` 선택 시 옵션 패키지 필요 (`pip install -e ".[seg-rembg]"`) |
+| `ARCHIMEDES_DETECTOR_BACKEND` | `stub` | `stub` \| `onnx` (계획서 Step 1 객체 인식) |
+| `ARCHIMEDES_SEGMENTATION_BACKEND` | `heuristic` | `heuristic` \| `rembg` \| `onnx` |
+| `ARCHIMEDES_DEPTH_BACKEND` | `stub` | `stub` \| `onnx` (계획서 Step 2-2 거리 추정) |
+| `ARCHIMEDES_ONNX_MODEL_DIR` | `/models` | 가중치 마운트 경로. 없으면 `ERR_MODEL_UNAVAILABLE` |
+| `ARCHIMEDES_DEPTH_OUTPUT_KIND` | `affine_invariant` | `metric` \| `affine_invariant` \| `relative` |
+| `ARCHIMEDES_DEPTH_OUTPUT_INVERSE` | `0` | 역깊이 모델이면 `1` (틀리면 물체가 뒤집혀 복원됨) |
+| `ARCHIMEDES_REQUIRE_ANCHOR` | `0` | `1`이면 카드 없는 job 을 `ERR_SCALE_UNRESOLVED` 로 거절 |
+| `ARCHIMEDES_ALLOW_CARD_FALLBACK` | `0` | `1`이면 카드 미검출 시 가짜 사각형 가정(**데모 전용**, 스케일 날조됨) |
+| `ARCHIMEDES_USE_VOXEL_CARVE` | `1` | 다뷰 모드에서 `0`이면 슬랩 AABB만 |
 
 자세한 의미: `archimedes-technical-extensions.mdc`.
 

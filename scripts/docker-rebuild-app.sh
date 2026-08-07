@@ -9,3 +9,22 @@ docker compose build api worker worker-consumer web
 echo "==> docker compose up -d …"
 docker compose up -d api worker worker-consumer web
 echo "==> done. web: http://localhost:25173 (또는 compose에 설정한 포트)"
+
+# 터널은 기본으로 켜지 않는다 — 로컬 API 를 공개 인터넷에 노출하는 동작이라
+# 재빌드의 부수효과가 되면 안 된다. 필요할 때만 명시적으로 켠다.
+#
+#   ./scripts/docker-rebuild-app.sh --tunnel   또는   ARCHIMEDES_TUNNEL=1 ...
+#
+# 터널 로직은 scripts/tunnel-api.sh 하나로 통일한다
+# (고정 URL·Quick Tunnel·PID 관리·정지 포함).
+WANT_TUNNEL="${ARCHIMEDES_TUNNEL:-0}"
+for arg in "$@"; do
+  [[ "$arg" == "--tunnel" ]] && WANT_TUNNEL=1
+done
+
+if [[ "$WANT_TUNNEL" == "1" ]]; then
+  echo "==> starting API tunnel (scripts/tunnel-api.sh) …"
+  ./scripts/tunnel-api.sh
+else
+  echo "==> 터널 생략. 필요하면 --tunnel (정지: ./scripts/tunnel-api-stop.sh)"
+fi

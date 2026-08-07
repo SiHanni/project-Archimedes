@@ -141,14 +141,14 @@ services:
       PORT: 3000
       # 시세·견적 (계획서 Step 2-1). 로컬 기본은 고정 표 — 항상 stale 로 표시된다.
       #
-      # **팔 때(매입) 시세** 2026-08-05, 순도 999 기준 g당:
-      #   금 183,467(1돈 688,000) · 은 2,491 · 백금 71,467(1돈 268,000)
+      # **팔 때(매입) 시세** 2026-08-07, 순도 999 기준 g당:
+      #   금 188,800(1돈 708,000) · 은 2,645 · 백금 74,933
       # 나머지 함량은 순도비(999 기준)로 환산한 근사다. 실거래 매입가는 함량마다
       # 마진이 따로 붙으므로 정확한 값을 알게 되면 키별로 덮어쓸 것.
       PRICE_BACKEND: ${PRICE_BACKEND:-static}
-      PRICE_TABLE_KRW_PER_GRAM: ${PRICE_TABLE_KRW_PER_GRAM:-{"gold:24k":183467,"gold:22k":168224,"gold:18k":137738,"gold:14k":107436,"gold:10k":76582,"silver:fine":2491,"silver:sterling":2306,"platinum:pt999":71467,"platinum:pt950":67962,"platinum:pt900":64385}}
+      PRICE_TABLE_KRW_PER_GRAM: ${PRICE_TABLE_KRW_PER_GRAM:-{"gold:24k":188800,"gold:22k":173114,"gold:18k":141742,"gold:14k":110559,"gold:10k":78808,"silver:fine":2645,"silver:sterling":2449,"platinum:pt999":74933,"platinum:pt950":71258,"platinum:pt900":67507}}
       # 고정 표가 **언제 기준인지**. 없으면 조회 시각을 쓰게 되어 오늘 시세인 척한다.
-      PRICE_TABLE_AS_OF: ${PRICE_TABLE_AS_OF:-2026-08-05}
+      PRICE_TABLE_AS_OF: ${PRICE_TABLE_AS_OF:-2026-08-07}
       PRICE_API_URL: ${PRICE_API_URL:-}
       PRICE_API_KEY: ${PRICE_API_KEY:-}
       # 입력값이 이미 '팔 때' 시세라 추가 매입률을 곱하지 않는다

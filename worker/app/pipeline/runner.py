@@ -551,7 +551,27 @@ def _run_single(
         if card is not None:
             exclude = cv2.bitwise_not(card_roi_mask(card, mask.shape, MATTING_ROI_SPANS))
             cv2.fillPoly(exclude, [np.asarray(card.quad_px, dtype=np.int32)], 255)
-        mask, matte_meta = refine_with_grabcut(bgr, mask, exclude=exclude)
+        # 학습 기반 분할(SlimSAM)을 **먼저** 시도한다. 외형 폴백의 임계값은 조명에
+        # 흔들려 같은 반지가 사진마다 1.9배씩 달라졌는데(실측), SAM 은 임계가 없어
+        # 같은 물체면 같은 마스크를 낸다(같은 쌍에서 1.04배).
+        # 씨앗이 나쁘면 SAM 도 나쁘므로 성장 가드로 되돌린다.
+        if settings.sam_model_dir:
+            from app.pipeline.backends.sam import SlimSamSegmenter, refine_with_sam
+
+            mask, sam_meta = refine_with_sam(
+                SlimSamSegmenter(settings.sam_model_dir), bgr, mask, exclude=exclude
+            )
+            mask_meta.update(sam_meta)
+            used_sam = sam_meta.get("sam") == "used"
+        else:
+            used_sam = False
+
+        # SAM 이 먹혔으면 GrabCut 은 건너뛴다 — 그 위에 또 색으로 넓히면
+        # SAM 이 잡아 준 경계를 도로 그림자로 번지게 한다.
+        if not used_sam:
+            mask, matte_meta = refine_with_grabcut(bgr, mask, exclude=exclude)
+        else:
+            matte_meta = {"matting": "skipped_sam_used"}
         # 반지처럼 가는 고리는 그늘진 호가 떨어져 나가 마스크가 끊긴다.
         # 물체 자신의 선 두께만큼만 이어 붙인다(구멍은 안 메워진다).
         mask, bridged_px = bridge_stroke_gaps(mask)

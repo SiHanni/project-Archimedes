@@ -76,6 +76,8 @@ services:
       # 거리 추정용 metric depth. **초점거리 추정에만** 쓴다(절대깊이는 실측 10배 과대).
       ARCHIMEDES_DEPTHPRO_DIR: ${ARCHIMEDES_DEPTHPRO_DIR:-}
       ARCHIMEDES_DEPTHPRO_FILE: ${ARCHIMEDES_DEPTHPRO_FILE:-model_quantized.onnx}
+      # 프롬프트 기반 분할(SlimSAM, 40MB). 외형 폴백의 임계값 흔들림을 줄인다.
+      ARCHIMEDES_SAM_DIR: ${ARCHIMEDES_SAM_DIR:-}
       ARCHIMEDES_DEPTH_OUTPUT_KIND: ${ARCHIMEDES_DEPTH_OUTPUT_KIND:-affine_invariant}
       ARCHIMEDES_ONNX_MODEL_DIR: /models
       ARCHIMEDES_OBJECT_SIDE: ${ARCHIMEDES_OBJECT_SIDE:-left}
@@ -112,6 +114,8 @@ services:
       # 거리 추정용 metric depth. **초점거리 추정에만** 쓴다(절대깊이는 실측 10배 과대).
       ARCHIMEDES_DEPTHPRO_DIR: ${ARCHIMEDES_DEPTHPRO_DIR:-}
       ARCHIMEDES_DEPTHPRO_FILE: ${ARCHIMEDES_DEPTHPRO_FILE:-model_quantized.onnx}
+      # 프롬프트 기반 분할(SlimSAM, 40MB). 외형 폴백의 임계값 흔들림을 줄인다.
+      ARCHIMEDES_SAM_DIR: ${ARCHIMEDES_SAM_DIR:-}
       ARCHIMEDES_DEPTH_OUTPUT_KIND: ${ARCHIMEDES_DEPTH_OUTPUT_KIND:-affine_invariant}
       ARCHIMEDES_ONNX_MODEL_DIR: /models
       ARCHIMEDES_OBJECT_SIDE: ${ARCHIMEDES_OBJECT_SIDE:-left}

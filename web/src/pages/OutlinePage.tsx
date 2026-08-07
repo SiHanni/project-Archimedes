@@ -66,9 +66,14 @@ export function OutlinePage() {
           </p>
         )}
 
-        {job?.status === 'failed' && (
+        {/*
+          soft 에러(`completed_low_confidence`)는 status 가 'failed' 가 아니다.
+          'failed' 만 보면 **에러 메시지를 아무 데도 안 띄우게 된다** — 실측:
+          누끼 실패인데 화면엔 "아래 안내를 확인해 주세요"만 뜨고 안내가 없었다.
+        */}
+        {job?.error?.message && (
           <p className="notice notice--error" style={{ marginTop: '1rem' }}>
-            {job.error?.message ?? '추출에 실패했습니다.'}
+            {job.error.message}
           </p>
         )}
 

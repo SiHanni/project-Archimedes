@@ -171,3 +171,34 @@ def test_outline_ignores_border_touching_background():
     res = extract_outline(img)
     ys, _xs = np.where(res.mask > 0)
     assert ys.mean() > 250, "가장자리에 붙은 배경을 물체로 잡았다"
+
+
+def test_false_card_detection_does_not_erase_the_object():
+    """
+    카드가 없는 사진에서 오검출된 '카드'가 물체를 지우면 안 된다.
+
+    실측(도련님 사진): 카드가 없는데 검출기가 화면의 24.4% 를 카드로 잡았고,
+    그 제외 영역이 금괴를 통째로 덮어 "귀금속을 찾지 못했습니다"가 났다.
+    정작 Otsu 는 금괴를 2.2% 로 잘 잡고 있었다.
+
+    카드를 빼서 아무것도 안 남으면 그건 카드가 아니었다는 뜻이다.
+    """
+    from app.pipeline import eratosthenes as er
+
+    img = np.full((600, 800, 3), 40, np.uint8)
+    cv2.rectangle(img, (330, 380), (470, 460), (60, 185, 230), -1)  # 금색 물체
+    img = cv2.GaussianBlur(img, (3, 3), 0)
+
+    # 물체를 통째로 덮는 가짜 카드 검출을 흉내 낸다
+    bogus = np.zeros(img.shape[:2], np.uint8)
+    cv2.rectangle(bogus, (280, 330), (520, 510), 255, -1)
+    original = er._card_exclusion
+    er._card_exclusion = lambda _bgr, _s: (bogus, True)
+    try:
+        res = er.extract_outline(img)
+    finally:
+        er._card_exclusion = original
+
+    assert res.meta["card_present"] is False, "가짜 카드를 진짜로 믿었다"
+    ys, xs = np.where(res.mask > 0)
+    assert 300 < xs.mean() < 500 and 350 < ys.mean() < 490, "물체를 못 찾았다"

@@ -168,21 +168,39 @@ def extract_outline(bgr: np.ndarray, settings: Any = None) -> OutlineResult:
     h, w = bgr.shape[:2]
 
     exclude, had_card = _card_exclusion(bgr, settings)
-    keep = None if exclude is None else cv2.bitwise_not(exclude)
 
     gray = cv2.GaussianBlur(cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY), (5, 5), 0)
     _t, otsu = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     if float(otsu.mean()) > 127:
         otsu = 255 - otsu
+    foregrounds = (("otsu", otsu), ("chroma", chroma_foreground(bgr)))
 
-    candidates: list[tuple[str, np.ndarray, float]] = []
-    for name, fg in (("otsu", otsu), ("chroma", chroma_foreground(bgr))):
-        if keep is not None:
-            fg = cv2.bitwise_and(fg, keep)
-        picked = _pick_component(fg, (h, w))
-        if picked is None:
-            continue
-        candidates.append((name, picked, local_lab_contrast(bgr, picked)))
+    def _collect(mask_out: np.ndarray | None) -> list[tuple[str, np.ndarray, float]]:
+        keep = None if mask_out is None else cv2.bitwise_not(mask_out)
+        found: list[tuple[str, np.ndarray, float]] = []
+        for name, fg in foregrounds:
+            sel = fg if keep is None else cv2.bitwise_and(fg, keep)
+            picked = _pick_component(sel, (h, w))
+            if picked is not None:
+                found.append((name, picked, local_lab_contrast(bgr, picked)))
+        return found
+
+    candidates = _collect(exclude)
+
+    # 카드를 뺐더니 **아무것도 안 남으면** 그건 카드가 아니었다.
+    #
+    # 이 경로는 "기준물 없이"가 전제라 카드 검출은 어디까지나 보조다. 그런데
+    # 카드가 없는 사진에서도 검출기가 무언가를 카드라고 우기는 일이 있고, 그게
+    # 하필 물체 위를 덮으면 물체가 통째로 지워진다 — 실측(도련님 사진): 카드가
+    # 없는데 화면의 24.4% 를 카드로 잡았고 그 영역이 금괴를 덮어 "귀금속을 찾지
+    # 못했습니다"가 났다. 정작 Otsu 는 금괴를 2.2% 로 잘 잡고 있었다.
+    #
+    # 카드를 빼서 물체가 남으면 그 카드는 진짜였고(반지·금괴 사진),
+    # 빼서 아무것도 안 남으면 가짜였다. 이 한 줄로 둘을 가른다.
+    if not candidates and exclude is not None:
+        log.info("card exclusion left nothing — 오검출로 보고 무시한다")
+        exclude, had_card = None, False
+        candidates = _collect(None)
 
     if not candidates:
         raise PipelineError(

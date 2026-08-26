@@ -56,6 +56,9 @@ log = logging.getLogger(__name__)
 _CENTER_FALLOFF = 0.35
 # 대비가 최고값의 이 비율 안이면 '엇비슷하다'고 보고 작은 쪽을 택한다
 _CONTRAST_TIE_RATIO = 0.9
+# 카드를 빼서 물체가 원래의 이 비율 밑으로 줄면 카드 오검출로 본다.
+# 진짜 카드는 물체와 겹치지 않으므로 빼도 물체 크기가 그대로다.
+_CARD_SHRINK_LIMIT = 0.6
 
 
 @dataclass
@@ -197,10 +200,24 @@ def extract_outline(bgr: np.ndarray, settings: Any = None) -> OutlineResult:
     #
     # 카드를 빼서 물체가 남으면 그 카드는 진짜였고(반지·금괴 사진),
     # 빼서 아무것도 안 남으면 가짜였다. 이 한 줄로 둘을 가른다.
-    if not candidates and exclude is not None:
-        log.info("card exclusion left nothing — 오검출로 보고 무시한다")
-        exclude, had_card = None, False
-        candidates = _collect(None)
+    if exclude is not None:
+        # 카드를 빼기 **전후를 비교**한다. 빼서 물체가 크게 쪼그라들면 그건
+        # 카드가 아니라 **물체 자신**을 지운 것이다.
+        #
+        # 종전에는 "빼서 **아무것도** 안 남으면"만 봤는데, 조각이라도 남으면
+        # 그대로 통과했다 — 실측(흰 배경 반지 제품컷): 반지(면적 19%)를 카드로
+        # 오인해(16.7%, 중심이 반지와 5px 차이) 본체를 지우고 위쪽 조각 1.17%
+        # 만 남겼다. 남은 게 원래의 6% 였는데도 "뭔가 남았으니 OK"로 지나갔다.
+        without = _collect(None)
+        best_with = max((int(cv2.countNonZero(c[1])) for c in candidates), default=0)
+        best_without = max((int(cv2.countNonZero(c[1])) for c in without), default=0)
+        if best_without > 0 and best_with < best_without * _CARD_SHRINK_LIMIT:
+            log.info(
+                "card exclusion shrank object %d → %d px — 오검출로 보고 무시한다",
+                best_without, best_with,
+            )
+            exclude, had_card = None, False
+            candidates = without
 
     if not candidates:
         raise PipelineError(

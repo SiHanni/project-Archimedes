@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     # 폰 사진은 늘 이보다 크다. 이 게이트의 목적은 썸네일·스크린샷 같은
     # **분석 불가능한 저해상도**를 거르는 것이지 화질 심사가 아니다.
     min_short_edge_px: int = Field(default=1000, validation_alias="ARCHIMEDES_MIN_SHORT_EDGE")
+    # 외곽선 전용 경로는 **크기를 주장하지 않으므로** 문턱이 훨씬 낮아도 된다.
+    # 높게 잡으면 원본이 없는 사용자가 모니터를 재촬영하는 우회를 하게 되고,
+    # 그 사진은 모아레 때문에 누끼가 오히려 더 나빠진다(실측).
+    min_short_edge_outline_px: int = Field(
+        default=240, validation_alias="ARCHIMEDES_MIN_SHORT_EDGE_OUTLINE"
+    )
     # 라플라시안 분산(대략적 선명도). 높을수록 엄격. v0 스캐폴드는 로컬·데모에서 거절이 잦아 기본 완화.
     # 운영·파일럿 전 `ARCHIMEDES_BLUR_THRESHOLD`로 재튜닝(스펙 §8).
     blur_laplacian_threshold: float = Field(

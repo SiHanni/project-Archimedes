@@ -80,8 +80,12 @@ services:
       ARCHIMEDES_SAM_DIR: ${ARCHIMEDES_SAM_DIR:-}
       ARCHIMEDES_MATTE_DIR: ${ARCHIMEDES_MATTE_DIR:-/models/birefnet}
       # BiRefNet 은 한 장에 수십 초 걸리는 큰 모델이라 **한 잡의 지연**이 문제다.
-      # 기본 2 는 작은 모델을 잡 병렬로 굴리던 시절의 값 — 여기서는 코어를 놀린다.
-      ARCHIMEDES_ONNX_THREADS: ${ARCHIMEDES_ONNX_THREADS:-2}
+      # 기본 2 는 작은 모델을 잡 병렬로 굴리던 시절의 값 — 코어를 놀린다.
+      #
+      # ⚠️ 올리기 전에 **메모리부터 보라.** 맥북에어 Docker VM(7.65GiB)에서는
+      # fp32(928MB) 추론 첨두가 한도를 넘어, 4 로만 올려도 워커가 잡 중간에
+      # 죽었다(재기동 루프 → 잡이 영원히 processing). 32GB 서버에서는 4 가 안전하다.
+      ARCHIMEDES_ONNX_THREADS: ${ARCHIMEDES_ONNX_THREADS:-4}
       ARCHIMEDES_MATTE_FILE: ${ARCHIMEDES_MATTE_FILE:-model.onnx}
       ARCHIMEDES_DEPTH_OUTPUT_KIND: ${ARCHIMEDES_DEPTH_OUTPUT_KIND:-affine_invariant}
       ARCHIMEDES_ONNX_MODEL_DIR: /models
@@ -123,8 +127,12 @@ services:
       ARCHIMEDES_SAM_DIR: ${ARCHIMEDES_SAM_DIR:-}
       ARCHIMEDES_MATTE_DIR: ${ARCHIMEDES_MATTE_DIR:-/models/birefnet}
       # BiRefNet 은 한 장에 수십 초 걸리는 큰 모델이라 **한 잡의 지연**이 문제다.
-      # 기본 2 는 작은 모델을 잡 병렬로 굴리던 시절의 값 — 여기서는 코어를 놀린다.
-      ARCHIMEDES_ONNX_THREADS: ${ARCHIMEDES_ONNX_THREADS:-2}
+      # 기본 2 는 작은 모델을 잡 병렬로 굴리던 시절의 값 — 코어를 놀린다.
+      #
+      # ⚠️ 올리기 전에 **메모리부터 보라.** 맥북에어 Docker VM(7.65GiB)에서는
+      # fp32(928MB) 추론 첨두가 한도를 넘어, 4 로만 올려도 워커가 잡 중간에
+      # 죽었다(재기동 루프 → 잡이 영원히 processing). 32GB 서버에서는 4 가 안전하다.
+      ARCHIMEDES_ONNX_THREADS: ${ARCHIMEDES_ONNX_THREADS:-4}
       ARCHIMEDES_MATTE_FILE: ${ARCHIMEDES_MATTE_FILE:-model.onnx}
       ARCHIMEDES_DEPTH_OUTPUT_KIND: ${ARCHIMEDES_DEPTH_OUTPUT_KIND:-affine_invariant}
       ARCHIMEDES_ONNX_MODEL_DIR: /models

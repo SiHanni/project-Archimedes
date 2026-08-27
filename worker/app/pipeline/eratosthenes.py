@@ -185,7 +185,7 @@ def _matte_outline(bgr: np.ndarray, settings: Any) -> OutlineResult | None:
     from app.pipeline.backends.matte import BiRefNetMatter
 
     try:
-        matter = BiRefNetMatter(model_dir, getattr(settings, "matte_model_file", "model_fp16.onnx"))
+        matter = BiRefNetMatter(model_dir, getattr(settings, "matte_model_file", "model.onnx"))
         mask, meta = matter.mask_refined(bgr)
     except Exception as e:  # noqa: BLE001 — 모델 실패가 분석 실패가 되면 안 된다
         log.warning("matte backend failed, falling back to appearance: %s", e)

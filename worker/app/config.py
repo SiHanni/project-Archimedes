@@ -94,7 +94,7 @@ class Settings(BaseSettings):
     # 학습 기반 누끼(BiRefNet). 비우면 색 임계값 폴백으로 내려간다.
     matte_model_dir: str = Field(default="", validation_alias="ARCHIMEDES_MATTE_DIR")
     matte_model_file: str = Field(
-        default="model_fp16.onnx", validation_alias="ARCHIMEDES_MATTE_FILE"
+        default="model.onnx", validation_alias="ARCHIMEDES_MATTE_FILE"
     )
     # 깊이 모델 출력 성격 — 틀리면 스케일 복원이 통째로 어긋난다
     depth_output_kind: str = Field(

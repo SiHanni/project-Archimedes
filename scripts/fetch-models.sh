@@ -43,10 +43,12 @@ done
 # BiRefNet 은 10장 전부 물체만 잡고 구멍까지 파냈다. MIT 라이선스.
 BIREF_DIR="${MODEL_DIR}/birefnet"
 mkdir -p "$BIREF_DIR"
-if [ ! -s "${BIREF_DIR}/model_fp16.onnx" ]; then
-  echo "==> BiRefNet model_fp16.onnx (467MB)"
-  curl -fSL --progress-bar -o "${BIREF_DIR}/model_fp16.onnx" \
-    "https://huggingface.co/onnx-community/BiRefNet-ONNX/resolve/main/onnx/model_fp16.onnx"
+# ⚠️ fp16 은 ONNX Runtime 1.29 CPU 에서 com.microsoft.Gelu 가 float16 을 안 받아
+#    통째로 실패한다. fp32 로 고정한다.
+if [ ! -s "${BIREF_DIR}/model.onnx" ]; then
+  echo "==> BiRefNet model.onnx (928MB)"
+  curl -fSL --progress-bar -o "${BIREF_DIR}/model.onnx" \
+    "https://huggingface.co/onnx-community/BiRefNet-ONNX/resolve/main/onnx/model.onnx"
 fi
 
 cat <<MSG

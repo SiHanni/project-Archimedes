@@ -36,10 +36,10 @@ Runtime 에 `com.microsoft.Gelu` 의 float16 커널이 아예 없어 세션 생�
 맥 로컬(arm64 휠)에서는 같은 1.28 로 돌아가기 때문에 로컬 검증만으로는 절대
 안 잡힌다. 반드시 컨테이너에서 확인할 것.
 
-⚠️ fp32 는 메모리를 많이 먹는다. intra-op 스레드를 올리면(8) 워커가 조용히
-SIGKILL 당한다 — `OOMKilled=false` · `ExitCode=0` 으로 찍혀 정상 종료처럼
-보이고 잡은 영원히 processing 에 남는다(실측 RestartCount=3, 한 장 192초 미완).
-스레드는 4 를 넘기지 말 것.
+⚠️ 워커가 `OOMKilled=false` · `ExitCode=0` 으로 조용히 재기동하며 잡이 영원히
+processing 에 남는 일이 있었는데, 원인은 스레드 수가 아니라 **컨테이너 안에서
+세션을 여러 개 띄운 진단 스크립트**였다. 상주 사용량은 1.2GiB/7.65GiB 로
+여유가 있다. 큰 모델을 얹은 컨테이너에서 별도 프로세스로 벤치를 돌리지 말 것.
 
 ## 계약
 
@@ -73,6 +73,8 @@ _CROP_PAD_RATIO = 0.06
 # 2차 결과가 1차 대비 이 범위를 벗어나면 버린다.
 # 실측 10장의 실제 비율은 0.28~1.11 이었다 — 0.28(저울 벗김)은 살리고,
 # 물체가 통째로 사라지는(0에 가까운) 경우만 걸러 낸다.
+# 1차 마스크가 화면의 이 비율 미만이면 2차를 건너뛴다 (용기가 없다고 본다)
+_REFINE_MIN_AREA_FRAC = 0.08
 _MIN_REFINE_RATIO = 0.2
 _MAX_REFINE_RATIO = 1.3
 
@@ -141,6 +143,13 @@ class BiRefNetMatter:
         h, w = bgr.shape[:2]
         ys, xs = np.where(first > 0)
         if not ys.size:
+            return first, meta
+
+        # 2차는 추론을 한 번 더 도는 것이라 **응답 시간이 두 배**가 된다(한 장
+        # 20초 → 40초). 용기가 끼어든 사진에서만 값을 하므로, 1차 마스크가 작으면
+        # 건너뛴다 — 용기(저울·상자)는 언제나 화면에서 크게 잡힌다(실측 19.8%·26.7%).
+        if float(cv2.countNonZero(first)) / float(h * w) < _REFINE_MIN_AREA_FRAC:
+            meta["refine"] = "skipped_small"
             return first, meta
 
         pad = int(_CROP_PAD_RATIO * max(h, w))

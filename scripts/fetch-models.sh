@@ -36,6 +36,19 @@ for f in onnx/vision_encoder.onnx onnx/prompt_encoder_mask_decoder.onnx config.j
     "https://huggingface.co/Xenova/slimsam-77-uniform/resolve/main/${f}"
 done
 
+
+# ── BiRefNet (학습 기반 누끼, fp16 467MB) ──────────────────────────────
+# 외곽선 탭의 **본선**. 색 임계값(Otsu·채도) 경로로는 체인 같은 가는 선, 상자·
+# 저울 위 구도, 반지 구멍을 원리적으로 못 가른다 — 실사진 10장 중 8장이 깨졌다.
+# BiRefNet 은 10장 전부 물체만 잡고 구멍까지 파냈다. MIT 라이선스.
+BIREF_DIR="${MODEL_DIR}/birefnet"
+mkdir -p "$BIREF_DIR"
+if [ ! -s "${BIREF_DIR}/model_fp16.onnx" ]; then
+  echo "==> BiRefNet model_fp16.onnx (467MB)"
+  curl -fSL --progress-bar -o "${BIREF_DIR}/model_fp16.onnx" \
+    "https://huggingface.co/onnx-community/BiRefNet-ONNX/resolve/main/onnx/model_fp16.onnx"
+fi
+
 cat <<MSG
 
 ==> 완료. .env 에 아래를 넣고 워커를 재기동하세요.
@@ -44,6 +57,7 @@ cat <<MSG
   ARCHIMEDES_DEPTH_MODEL_FILE=${VARIANT}.onnx
   ARCHIMEDES_DEPTH_OUTPUT_KIND=inverse_affine
   ARCHIMEDES_SAM_DIR=/models/sam
+  ARCHIMEDES_MATTE_DIR=/models/birefnet
 
   docker compose up -d --build worker worker-consumer
 

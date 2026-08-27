@@ -166,9 +166,48 @@ def _card_exclusion(bgr: np.ndarray, settings: Any) -> tuple[np.ndarray | None, 
     return cv2.dilate(filled, np.ones((d, d), np.uint8)), True
 
 
+# 모델 마스크가 화면의 이 비율을 넘으면 물체가 아니라 배경을 잡은 것으로 본다
+_MATTE_AREA_FRAC_MAX = 0.92
+# 모델 마스크가 이보다 작으면 잡음으로 본다
+_MATTE_AREA_FRAC_MIN = 0.0002
+
+
+def _matte_outline(bgr: np.ndarray, settings: Any) -> OutlineResult | None:
+    """
+    학습 기반 누끼(BiRefNet). 모델이 없거나 결과가 터무니없으면 None.
+
+    **이 경로가 본선이다.** 색 임계값 경로는 모델을 못 쓸 때의 폴백으로만 남긴다
+    — 실측 근거는 `backends/matte.py` 머리말.
+    """
+    model_dir = getattr(settings, "matte_model_dir", None)
+    if not model_dir:
+        return None
+    from app.pipeline.backends.matte import BiRefNetMatter
+
+    try:
+        matter = BiRefNetMatter(model_dir, getattr(settings, "matte_model_file", "model_fp16.onnx"))
+        mask, meta = matter.mask_refined(bgr)
+    except Exception as e:  # noqa: BLE001 — 모델 실패가 분석 실패가 되면 안 된다
+        log.warning("matte backend failed, falling back to appearance: %s", e)
+        return None
+
+    frac = float(meta["area_frac"])
+    if not (_MATTE_AREA_FRAC_MIN <= frac <= _MATTE_AREA_FRAC_MAX):
+        log.warning("matte area %.4f out of range — falling back to appearance", frac)
+        return None
+
+    meta.update({"scale_available": False, "card_present": False, "matting": "birefnet"})
+    log.info("outline via birefnet frac=%.5f", frac)
+    return OutlineResult(mask=mask, meta=meta)
+
+
 def extract_outline(bgr: np.ndarray, settings: Any = None) -> OutlineResult:
     """기준물 없이 귀금속 외곽선을 딴다. 크기는 내지 않는다."""
     h, w = bgr.shape[:2]
+
+    learned = _matte_outline(bgr, settings)
+    if learned is not None:
+        return learned
 
     exclude, had_card = _card_exclusion(bgr, settings)
 

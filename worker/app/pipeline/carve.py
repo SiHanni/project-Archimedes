@@ -65,6 +65,25 @@ _SPEC_V = 0.94
 # 이 한 줄이 "색이 이상한 금속"과 "색이 이상한 포장"을 가른다.
 _METAL_SPEC_MIN = 0.02
 
+# ── 구멍(배경이 비치는 곳) 파내기 ──────────────────────────────────────────
+# 반지 구멍 속으로 흰 받침이 보이는데 모델이 못 파낸 경우를 다룬다.
+# 실측 T332: 모델이 구멍 안쪽까지 alpha 1.0 으로 확신해 **임계값을 0.98 까지
+# 올려도 구멍이 안 생긴다.** 후처리로만 해결된다.
+#
+# 위 포장 파내기와 **규칙을 나눈 이유** — 구멍 속 흰 받침은 밝기 중앙이 0.957 로
+# 금속 정반사(0.94↑)와 밝기로 구분되지 않는다. 그래서 정반사 보호를 걸 수 없고,
+# 대신 "이 색이 물체 **바깥 배경**과 같은가"를 본다. 비쳐 보이는 배경이면 같고,
+# 금속 하이라이트면 다르다.
+_HOLE_S_MAX = 0.25
+_HOLE_V_MIN = 0.60
+# 구멍 후보는 마스크의 이 비율 이상이어야 한다 (하이라이트는 이만큼 크지 않다)
+_HOLE_MIN_FRAC = 0.03
+# 물체 바깥 띠(배경)와의 Lab 거리가 이 안이면 '배경이 비친 것'으로 본다.
+# 실측: T332 구멍 26.3. 나머지 9장은 후보 덩어리 자체가 없었다.
+_HOLE_BG_LAB_DIST = 45.0
+# 배경 띠를 만들 때 쓰는 팽창 커널 (긴 변 대비)
+_BG_BAND_RATIO = 0.02
+
 
 def carve_non_metal(mask: np.ndarray, bgr: np.ndarray) -> tuple[np.ndarray, dict[str, Any]]:
     """마스크 안의 비금속 덩어리를 파낸다. (마스크 0/255, meta)"""
@@ -123,4 +142,64 @@ def carve_non_metal(mask: np.ndarray, bgr: np.ndarray) -> tuple[np.ndarray, dict
         meta["carve"] = "reverted_too_much"
         return mask, meta
 
+    return out * 255, meta
+
+
+def carve_seethrough_holes(
+    mask: np.ndarray, bgr: np.ndarray
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """
+    마스크 안에서 **배경이 비쳐 보이는 구멍**을 파낸다. (마스크 0/255, meta)
+
+    근거·판별 방식은 위 `_HOLE_*` 상수 주석 참조.
+    """
+    binary = (mask > 0).astype(np.uint8)
+    total = int(cv2.countNonZero(binary))
+    if total == 0:
+        return mask, {"hole_carve": "empty"}
+
+    h, w = bgr.shape[:2]
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    sat = hsv[..., 1].astype(np.float32) / 255.0
+    val = hsv[..., 2].astype(np.float32) / 255.0
+    lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
+
+    # 물체 바로 바깥 띠 = 배경 기준색
+    kb = max(5, int(_BG_BAND_RATIO * max(h, w)) | 1)
+    band = (cv2.dilate(binary, np.ones((kb, kb), np.uint8)) > 0) & (binary == 0)
+    if not band.any():
+        return mask, {"hole_carve": "no_background"}
+    bg = np.median(lab[band], axis=0)
+
+    cand = (binary > 0) & (sat < _HOLE_S_MAX) & (val >= _HOLE_V_MIN)
+    ko = max(3, int(_OPEN_RATIO * max(h, w)) | 1)
+    opened = cv2.morphologyEx(cand.astype(np.uint8), cv2.MORPH_OPEN, np.ones((ko, ko), np.uint8))
+
+    n, labels, stats, _c = cv2.connectedComponentsWithStats(opened, connectivity=8)
+    carve = np.zeros((h, w), np.uint8)
+    holes = 0
+    for i in range(1, n):
+        if stats[i, cv2.CC_STAT_AREA] < total * _HOLE_MIN_FRAC:
+            continue
+        sel = labels == i
+        dist = float(np.linalg.norm(np.median(lab[sel], axis=0) - bg))
+        if dist > _HOLE_BG_LAB_DIST:
+            continue
+        carve[sel] = 1
+        holes += 1
+
+    if holes == 0:
+        return mask, {"hole_carve": "nothing"}
+
+    out = binary.copy()
+    out[carve > 0] = 0
+    ratio = int(cv2.countNonZero(out)) / float(total)
+    meta: dict[str, Any] = {
+        "hole_carve": "applied",
+        "hole_carve_count": holes,
+        "hole_carve_keep_ratio": round(ratio, 3),
+    }
+    if ratio < _MIN_KEEP_RATIO:
+        meta["hole_carve"] = "reverted_too_much"
+        return mask, meta
     return out * 255, meta

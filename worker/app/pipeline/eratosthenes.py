@@ -46,7 +46,7 @@ import numpy as np
 
 from app.constants import JEWEL_AREA_FRAC_MAX, JEWEL_AREA_FRAC_MIN
 from app.pipeline.appearance import chroma_foreground, local_lab_contrast
-from app.pipeline.carve import carve_non_metal
+from app.pipeline.carve import carve_non_metal, carve_seethrough_holes
 from app.pipeline.exceptions import PipelineError
 from app.pipeline.jewel_mask import touches_frame_border
 from app.pipeline.matting import refine_with_grabcut
@@ -205,6 +205,9 @@ def _matte_outline(bgr: np.ndarray, settings: Any) -> OutlineResult | None:
     # 성분 단위로 못 가른 것(제품에 붙은 상자·구멍으로 비치는 받침)을 파낸다
     mask, cv_meta = carve_non_metal(mask, bgr)
     meta.update(cv_meta)
+    # 모델이 못 파낸 구멍(배경이 비쳐 보이는 곳)을 파낸다
+    mask, hc_meta = carve_seethrough_holes(mask, bgr)
+    meta.update(hc_meta)
     h, w = bgr.shape[:2]
     meta["area_frac"] = round(float(cv2.countNonZero(mask)) / float(h * w), 6)
 

@@ -30,10 +30,12 @@ BiRefNet 은 dichotomous image segmentation(고해상도 이분할) 용으로 �
 
 CPU 로 한 장 7~9초. 누끼 탭은 Depth Pro 를 안 타므로 이 정도는 감당한다.
 
-⚠️ **fp32(`model.onnx`) 를 쓴다.** fp16 은 컨테이너의 ONNX Runtime 1.29 에서
-`com.microsoft.Gelu` 커널이 float16 을 안 받아 통째로 실패한다(실측: 워커가
-매 요청 폴백으로 떨어졌다). 맥 로컬 1.28 에서는 돌아가서 더 헷갈린다 —
-환경별로 갈리므로 fp32 로 고정한다. 928MB.
+⚠️ **fp16(`model_fp16.onnx`, 467MB) 을 쓰고, onnxruntime 을 `<1.29` 로 고정한다.**
+1.29 는 CPU 에서 `com.microsoft.Gelu` 의 float16 커널이 없어 세션 생성부터
+실패한다. 그렇다고 fp32(928MB)로 가면 도련님 Docker VM(7.65GiB)에서 워커가
+조용히 SIGKILL 당한다 — `OOMKilled=false` · `ExitCode=0` 으로 찍혀 정상 종료처럼
+보이고, 잡은 영원히 processing 에 남는다(실측 RestartCount=3, 잡 192초 미완).
+그래서 **런타임을 내리고 가중치를 가볍게** 가는 조합이 유일한 답이다.
 
 ## 계약
 
@@ -76,7 +78,7 @@ class BiRefNetMatter:
 
     name = "birefnet"
 
-    def __init__(self, model_dir: str, model_file: str = "model.onnx") -> None:
+    def __init__(self, model_dir: str, model_file: str = "model_fp16.onnx") -> None:
         self.model_dir = model_dir
         self.model_file = model_file
         self._sess: Any = None

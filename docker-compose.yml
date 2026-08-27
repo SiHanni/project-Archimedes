@@ -81,8 +81,8 @@ services:
       ARCHIMEDES_MATTE_DIR: ${ARCHIMEDES_MATTE_DIR:-/models/birefnet}
       # BiRefNet 은 한 장에 수십 초 걸리는 큰 모델이라 **한 잡의 지연**이 문제다.
       # 기본 2 는 작은 모델을 잡 병렬로 굴리던 시절의 값 — 여기서는 코어를 놀린다.
-      ARCHIMEDES_ONNX_THREADS: ${ARCHIMEDES_ONNX_THREADS:-8}
-      ARCHIMEDES_MATTE_FILE: ${ARCHIMEDES_MATTE_FILE:-model.onnx}
+      ARCHIMEDES_ONNX_THREADS: ${ARCHIMEDES_ONNX_THREADS:-6}
+      ARCHIMEDES_MATTE_FILE: ${ARCHIMEDES_MATTE_FILE:-model_fp16.onnx}
       ARCHIMEDES_DEPTH_OUTPUT_KIND: ${ARCHIMEDES_DEPTH_OUTPUT_KIND:-affine_invariant}
       ARCHIMEDES_ONNX_MODEL_DIR: /models
       ARCHIMEDES_OBJECT_SIDE: ${ARCHIMEDES_OBJECT_SIDE:-left}
@@ -124,8 +124,8 @@ services:
       ARCHIMEDES_MATTE_DIR: ${ARCHIMEDES_MATTE_DIR:-/models/birefnet}
       # BiRefNet 은 한 장에 수십 초 걸리는 큰 모델이라 **한 잡의 지연**이 문제다.
       # 기본 2 는 작은 모델을 잡 병렬로 굴리던 시절의 값 — 여기서는 코어를 놀린다.
-      ARCHIMEDES_ONNX_THREADS: ${ARCHIMEDES_ONNX_THREADS:-8}
-      ARCHIMEDES_MATTE_FILE: ${ARCHIMEDES_MATTE_FILE:-model.onnx}
+      ARCHIMEDES_ONNX_THREADS: ${ARCHIMEDES_ONNX_THREADS:-6}
+      ARCHIMEDES_MATTE_FILE: ${ARCHIMEDES_MATTE_FILE:-model_fp16.onnx}
       ARCHIMEDES_DEPTH_OUTPUT_KIND: ${ARCHIMEDES_DEPTH_OUTPUT_KIND:-affine_invariant}
       ARCHIMEDES_ONNX_MODEL_DIR: /models
       ARCHIMEDES_OBJECT_SIDE: ${ARCHIMEDES_OBJECT_SIDE:-left}

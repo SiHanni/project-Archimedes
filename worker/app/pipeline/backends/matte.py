@@ -147,10 +147,13 @@ class BiRefNetMatter:
         if not ys.size:
             return first, meta
 
-        # 2차는 추론을 한 번 더 도는 것이라 **응답 시간이 두 배**가 된다(한 장
-        # 20초 → 40초). 용기가 끼어든 사진에서만 값을 하므로, 1차 마스크가 작으면
-        # 건너뛴다 — 용기(저울·상자)는 언제나 화면에서 크게 잡힌다(실측 19.8%·26.7%).
-        if float(cv2.countNonZero(first)) / float(h * w) < _REFINE_MIN_AREA_FRAC:
+        # 2차는 추론을 한 번 더 도는 것이라 **응답 시간이 두 배**가 된다.
+        # 값을 하는 두 구간에서만 돈다(위 상수 주석 참조).
+        # 2차는 추론을 한 번 더 도는 것이라 응답 시간이 두 배가 된다. 용기(저울·
+        # 케이스)가 끼어든 사진에서만 값을 하고, 그런 사진은 1차 마스크가 언제나
+        # 크게 잡힌다(실측 19.8%·26.7%). 작으면 건너뛴다.
+        frac = float(cv2.countNonZero(first)) / float(h * w)
+        if frac < _REFINE_MIN_AREA_FRAC:
             meta["refine"] = "skipped_small"
             return first, meta
 

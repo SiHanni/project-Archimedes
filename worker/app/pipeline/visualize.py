@@ -27,7 +27,9 @@ log = logging.getLogger(__name__)
 _PREVIEW_MAX_SIDE = 1600
 # 폴리곤 단순화 강도 (둘레 대비). 라벨로 쓸 만큼은 남기고 점 수는 줄인다
 _POLY_EPS_RATIO = 0.002
-_JEWEL_COLOR = (60, 220, 255)  # BGR — 금색 계열
+# BGR. **형광 초록** — 금·은 어느 쪽과도 색이 겹치지 않아 경계가 눈으로 바로 보인다.
+# 금색 계열(60,220,255)을 쓰면 금 제품 위에서 선이 묻혀 검수가 안 된다.
+_JEWEL_COLOR = (0, 255, 0)
 _CARD_COLOR = (255, 170, 60)
 
 
@@ -132,9 +134,11 @@ def build_assets(
     tint = np.zeros_like(bgr)
     tint[:] = _JEWEL_COLOR
     sel = binary > 0
-    overlay[sel] = cv2.addWeighted(bgr, 0.55, tint, 0.45, 0)[sel]
+    overlay[sel] = cv2.addWeighted(bgr, 0.88, tint, 0.12, 0)[sel]
 
-    thickness = max(2, round(max(h, w) / 500))
+    # 이 오버레이는 **정답 누끼와 겹쳐 보며 채점**하는 데 쓰인다. 선이 굵으면
+    # 선 자체가 경계를 가려 실제보다 나쁘게(또는 좋게) 보인다 — 1px 로 그린다.
+    thickness = 1
     # ⚠️ RETR_EXTERNAL 은 **구멍을 안 그린다** — 반지 안쪽이 안 보여 검수가 안 된다.
     #    RETR_CCOMP 는 바깥선과 구멍을 모두 준다.
     contours, _ = cv2.findContours(binary, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)

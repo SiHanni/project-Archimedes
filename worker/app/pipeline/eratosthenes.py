@@ -49,6 +49,7 @@ from app.pipeline.appearance import chroma_foreground, local_lab_contrast
 from app.pipeline.exceptions import PipelineError
 from app.pipeline.jewel_mask import touches_frame_border
 from app.pipeline.matting import refine_with_grabcut
+from app.pipeline.non_metal import drop_non_metal
 
 log = logging.getLogger(__name__)
 
@@ -195,6 +196,13 @@ def _matte_outline(bgr: np.ndarray, settings: Any) -> OutlineResult | None:
     if not (_MATTE_AREA_FRAC_MIN <= frac <= _MATTE_AREA_FRAC_MAX):
         log.warning("matte area %.4f out of range — falling back to appearance", frac)
         return None
+
+    # 모델은 "두드러진 물체"를 잡지 "귀금속"을 잡지 않는다. 케이스·저울·서류가
+    # 딸려 오므로 색으로 한 번 더 거른다 — 근거는 `pipeline/non_metal.py` 머리말.
+    mask, nm_meta = drop_non_metal(mask, bgr)
+    meta.update(nm_meta)
+    h, w = bgr.shape[:2]
+    meta["area_frac"] = round(float(cv2.countNonZero(mask)) / float(h * w), 6)
 
     meta.update({"scale_available": False, "card_present": False, "matting": "birefnet"})
     log.info("outline via birefnet frac=%.5f", frac)

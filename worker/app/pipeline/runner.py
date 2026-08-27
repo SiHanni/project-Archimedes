@@ -374,9 +374,10 @@ def _run_outline(
 
     exif = collect_exif(raw)
     bgr = bytes_to_bgr(raw, exif.get("orientation"))
-    # 외곽선만 낼 때는 크기를 주장하지 않으므로 해상도 문턱을 낮춘다.
-    # 거리 모드는 픽셀 크기가 곧 거리라 원본급이 필요하다.
-    check_image_quality(bgr, settings, SINGLE_VIEW_KEY, needs_scale=with_distance)
+    # 이 경로는 **크기(mm)를 주장하지 않으므로** 해상도 문턱을 낮춘다.
+    # 거리 모드도 마찬가지다 — 축소하면 f 와 p 가 같은 비율로 줄어 Z 가 불변이다.
+    # 상세는 `quality_gate.check_image_quality` 주석.
+    check_image_quality(bgr, settings, SINGLE_VIEW_KEY, needs_scale=False)
     h, w = bgr.shape[:2]
 
     outline = extract_outline(bgr, settings)

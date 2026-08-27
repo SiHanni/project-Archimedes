@@ -149,14 +149,14 @@ class BiRefNetMatter:
 
         # 2차는 추론을 한 번 더 도는 것이라 **응답 시간이 두 배**가 된다.
         # 값을 하는 두 구간에서만 돈다(위 상수 주석 참조).
-        # 2차는 추론을 한 번 더 도는 것이라 응답 시간이 두 배가 된다. 용기(저울·
-        # 케이스)가 끼어든 사진에서만 값을 하고, 그런 사진은 1차 마스크가 언제나
-        # 크게 잡힌다(실측 19.8%·26.7%). 작으면 건너뛴다.
-        frac = float(cv2.countNonZero(first)) / float(h * w)
-        if frac < _REFINE_MIN_AREA_FRAC:
-            meta["refine"] = "skipped_small"
-            return first, meta
-
+        # 2차는 **언제나 돈다.** 응답이 두 배(10초 → 20~30초)가 되지만 그만한
+        # 값을 한다.
+        #
+        # ⚠️ 한때 "1차가 8% 미만이면 건너뛴다"로 두었다가 반지가 퇴행했다 —
+        #    T152 반지 두 개가 2.36% → 3.52% 로 부풀고 구멍이 덜 파였다.
+        #    용기 벗기기만 2차의 효용이라고 본 것이 틀렸다. 크롭 재추론은 물체가
+        #    화면을 크게 차지하게 만들어 **경계 자체를 다시 잘 보게** 한다.
+        #    작은 물체일수록 그 이득이 크다. 속도로 이걸 깎지 말 것.
         pad = int(_CROP_PAD_RATIO * max(h, w))
         y0, y1 = max(0, int(ys.min()) - pad), min(h, int(ys.max()) + pad)
         x0, x1 = max(0, int(xs.min()) - pad), min(w, int(xs.max()) + pad)

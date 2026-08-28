@@ -51,8 +51,14 @@ export function DistancePage() {
             오차가 절반 이하로 줄어듭니다.
           </p>
           <p style={{ margin: '0.5rem 0 0' }}>
-            ⏱ 렌즈 정보를 사진에서 추정하느라 <strong>2~3분</strong> 걸립니다.
-            외곽선만 필요하면 <strong>외곽선 추출</strong> 탭이 훨씬 빠릅니다.
+            📷 <strong>직접 찍은 원본 사진일수록 정확합니다.</strong> 캡처본·다운로드본·
+            잘라낸 사진은 촬영 정보(EXIF)가 지워져 있어 <strong>렌즈 정보를 추정으로
+            대신</strong> 하게 되고, 그만큼 오차 범위가 넓어집니다. 메신저로 주고받은
+            사진도 대부분 여기 해당합니다.
+          </p>
+          <p style={{ margin: '0.5rem 0 0' }}>
+            ⏱ 한 장에 <strong>약 30초</strong> 걸립니다. 외곽선만 필요하면{' '}
+            <strong>외곽선 추출</strong> 탭이 더 빠릅니다.
           </p>
         </div>
 
@@ -146,13 +152,14 @@ export function DistancePage() {
               <div className="notice notice--slate">
                 <p className="notice__title">카메라 ↔ 귀금속 거리 (추정)</p>
                 <div style={{ fontSize: '1.6rem', fontWeight: 700 }}>
-                  약 {dist.object_mm.toFixed(0)} mm
+                  약 {(dist.object_mm / 10).toFixed(1)} cm
                 </div>
                 {dist.range_mm && (
                   <div className="muted">
-                    범위 {dist.range_mm[0].toFixed(0)}~{dist.range_mm[1].toFixed(0)} mm
+                    범위 {(dist.range_mm[0] / 10).toFixed(1)}~
+                    {(dist.range_mm[1] / 10).toFixed(1)} cm
                     {dist.assumed_long_mm != null &&
-                      ` · 가정한 크기 ${dist.assumed_long_mm.toFixed(0)}mm`}
+                      ` · 가정한 크기 ${(dist.assumed_long_mm / 10).toFixed(1)}cm`}
                     {dist.size_source === 'user_input' && ' (직접 입력)'}
                   </div>
                 )}

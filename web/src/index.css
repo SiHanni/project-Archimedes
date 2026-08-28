@@ -318,3 +318,88 @@ a:hover {
   line-height: 1.65;
   color: #374151;
 }
+
+/* ── 여러 장 한 번에 (배치) ───────────────────────────────────────────── */
+.batch-controls {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 0.75rem 0;
+}
+.batch-controls .seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+}
+.batch-controls button.ghost {
+  background: transparent;
+  border: 1px solid var(--line, #d8dbe2);
+  color: inherit;
+}
+.table-wrap {
+  overflow-x: auto;
+  margin: 1rem 0;
+}
+.batch-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.9rem;
+}
+.batch-table th,
+.batch-table td {
+  border-bottom: 1px solid var(--line, #e3e6ec);
+  padding: 0.5rem 0.65rem;
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.batch-table th {
+  font-size: 0.8rem;
+  font-weight: 600;
+  opacity: 0.75;
+}
+.batch-table .n {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.batch-table .strong {
+  font-weight: 700;
+}
+.batch-table .fname {
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.batch-table .thumb {
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 6px;
+  display: block;
+}
+.batch-table .row-err td {
+  background: rgba(200, 60, 40, 0.06);
+}
+.batch-table .err-msg {
+  font-size: 0.75rem;
+  opacity: 0.7;
+  white-space: normal;
+  max-width: 18rem;
+  margin-top: 0.2rem;
+}
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+.badge-done { background: rgba(26, 127, 75, 0.12); color: #1a7f4b; }
+.badge-error { background: rgba(192, 57, 43, 0.12); color: #c0392b; }
+.badge-running { background: rgba(31, 95, 168, 0.12); color: #1f5fa8; }
+.badge-queued { background: rgba(120, 120, 120, 0.14); opacity: 0.85; }
+.badge-idle { background: transparent; opacity: 0.5; }
+.muted.small { font-size: 0.85rem; }

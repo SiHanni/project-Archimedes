@@ -101,12 +101,22 @@ class DepthProEstimator:
         h, w = bgr.shape[:2]
         sess = self._sess()
 
+        # ⚠️ **가로세로 비를 유지해야 한다.** 정사각으로 찌그러뜨려 넣으면 모델이
+        #    화각을 잘못 읽고, 그 오차가 초점거리 → 거리로 그대로 이어진다.
+        #    실측(도련님 사진 10장): 찌그러뜨리면 초점거리가 최대 50% 작게 나오고
+        #    (T374 462px vs 694px · T338 544px vs 802px), 거리가 그만큼 짧아진다.
+        #    가로세로 비가 1:1 인 사진(T330·T341)만 두 방식의 값이 같았다 —
+        #    찌그러질 것이 없기 때문으로, 이 진단이 맞다는 증거다.
+        n = self.input_size
+        scale = n / float(max(h, w))
+        nw, nh = max(1, round(w * scale)), max(1, round(h * scale))
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-        resized = cv2.resize(
-            rgb, (self.input_size, self.input_size), interpolation=cv2.INTER_LINEAR
-        )
+        resized = cv2.resize(rgb, (nw, nh), interpolation=cv2.INTER_LINEAR)
+        pad_x, pad_y = (n - nw) // 2, (n - nh) // 2
+        canvas = np.zeros((n, n, 3), dtype=np.uint8)
+        canvas[pad_y : pad_y + nh, pad_x : pad_x + nw] = resized
         # rescale 1/255 → normalize (x-0.5)/0.5  == [-1, 1]
-        tensor = (resized.astype(np.float32) / 255.0 - 0.5) / 0.5
+        tensor = (canvas.astype(np.float32) / 255.0 - 0.5) / 0.5
         tensor = np.transpose(tensor, (2, 0, 1))[None, ...]
 
         out_names = [o.name for o in sess.get_outputs()]
@@ -128,22 +138,29 @@ class DepthProEstimator:
         scalar_name = out_names[scalar_idx] if scalar_idx < len(out_names) else ""
 
         if "focal" in scalar_name.lower():
-            # ⚠️ 그래프 안에서 **모델 입력 폭(1536)** 기준으로 계산된 값이다.
-            #    원본 폭으로 환산하지 않으면 스케일이 통째로 어긋난다.
-            focal_px = scalar * (w / float(self.input_size))
+            # ⚠️ 그래프 안에서 **모델 입력 크기(1536)** 기준으로 계산된 값이다.
+            #    레터박스는 **긴 변**을 입력 크기에 맞추므로 긴 변으로 환산한다.
+            #    (폭으로 나누면 세로로 긴 사진에서 그 비율만큼 어긋난다)
+            focal_px = scalar / scale
             fov_deg = math.degrees(2.0 * math.atan(0.5 * self.input_size / max(scalar, 1e-6)))
         else:
             fov_deg = scalar
             tan_half = math.tan(0.5 * math.radians(fov_deg))
             if not (1e-6 < tan_half < 1e6):
                 raise RuntimeError(f"depth_pro: 화각이 비정상입니다 ({fov_deg} deg)")
-            focal_px = 0.5 * w / tan_half
+            focal_px = 0.5 * max(h, w) / tan_half
 
         if not (0.2 * w <= focal_px <= 8.0 * max(h, w)):
             raise RuntimeError(f"depth_pro: 초점거리가 비정상입니다 ({focal_px:.0f}px)")
 
-        # W 는 **원본 폭**. 모델 입력 폭을 쓰면 스케일이 통째로 어긋난다.
-        inverse_depth = np.clip(canonical * (w / focal_px), 1e-4, 1e4)
+        # 깊이맵도 레터박스 캔버스 좌표다 — **여백을 잘라 내고** 원본 크기로 되돌린다.
+        # 자르지 않으면 검은 여백이 물체 옆에 붙은 채로 늘어나 거리 중앙값이 오염된다.
+        if canonical.shape[0] != n or canonical.shape[1] != n:
+            canonical = cv2.resize(canonical, (n, n), interpolation=cv2.INTER_LINEAR)
+        canonical = canonical[pad_y : pad_y + nh, pad_x : pad_x + nw]
+
+        # 긴 변 기준. 초점거리와 같은 축으로 맞춰야 스케일이 어긋나지 않는다.
+        inverse_depth = np.clip(canonical * (max(h, w) / focal_px), 1e-4, 1e4)
         depth_m = 1.0 / inverse_depth
         if depth_m.shape != (h, w):
             depth_m = cv2.resize(depth_m, (w, h), interpolation=cv2.INTER_LINEAR)

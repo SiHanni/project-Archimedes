@@ -3,28 +3,56 @@ const API_BASE_KEY = 'archimedes.apiBase';
 /**
  * API 주소를 **런타임에** 정한다.
  *
- * 우선순위: `?api=` 쿼리 → localStorage → 빌드 시 `VITE_API_BASE` → `/api`
+ * 우선순위: `?api=` 쿼리 → localStorage(임시 주소) → 빌드 시 `VITE_API_BASE`
  *
- * 왜 런타임인가: 로컬 API 를 cloudflared Quick Tunnel 로 노출하는데 이 터널은
- * 끊기면 **주소가 바뀐다**. 빌드 시점에 주소를 구우면 바뀔 때마다 Vercel 환경변수
- * 갱신 + 재배포가 필요하고, 그 사이 사용자는 "Load Failed" 만 본다.
- * 쿼리로 한 번 넘겨 주면 localStorage 에 남아 재배포 없이 계속 쓴다.
+ * ## 왜 런타임인가
+ *
+ * 임시 터널로 API 를 노출하던 시절, 터널이 끊기면 주소가 바뀌었다. 그때마다
+ * 재배포하는 대신 `?api=` 로 한 번 넘겨 주면 localStorage 에 남아 계속 쓸 수 있다.
+ *
+ * ## ⚠️ 저장된 주소는 **버려질 수 있어야 한다**
+ *
+ * 실사고 — 임시 주소를 저장해 둔 브라우저가 **그 뒤로 계속 옛 서버를 쳤다.**
+ * 그 서버는 옛 코드를 돌고 있어서, 정식 서버에서는 정상 처리되는 사진이
+ * 화면에서는 "사진이 너무 작습니다"로 떨어졌다. 같은 요청인데 결과가 갈리니
+ * 원인을 찾기 어려웠다.
+ *
+ * 그래서 저장된 주소는 **빌드 기본값과 다를 때만** 쓰고, 그 주소가 죽으면
+ * (`clearSavedApiBase()`) 즉시 버리고 기본값으로 돌아간다. 기본값은 이제
+ * 바뀌지 않는 정식 도메인이라 저장해 둘 이유가 없다.
  */
+const BUILD_DEFAULT = (import.meta.env.VITE_API_BASE || '/api').replace(/\/+$/, '');
+
 function resolveApiBase(): string {
   const strip = (v: string) => v.replace(/\/+$/, '');
   try {
     const fromQuery = new URLSearchParams(window.location.search).get('api');
     if (fromQuery) {
       const v = strip(fromQuery);
-      window.localStorage.setItem(API_BASE_KEY, v);
+      if (v === BUILD_DEFAULT) window.localStorage.removeItem(API_BASE_KEY);
+      else window.localStorage.setItem(API_BASE_KEY, v);
       return v;
     }
     const saved = window.localStorage.getItem(API_BASE_KEY);
-    if (saved) return strip(saved);
+    if (saved && strip(saved) !== BUILD_DEFAULT) return strip(saved);
   } catch {
     // localStorage 차단(프라이빗 모드 등) — 빌드 기본값으로 계속 간다
   }
-  return strip(import.meta.env.VITE_API_BASE || '/api');
+  return BUILD_DEFAULT;
+}
+
+/** 저장된 임시 주소를 버린다. 그 주소가 죽었을 때 호출한다. */
+export function clearSavedApiBase(): boolean {
+  try {
+    const saved = window.localStorage.getItem(API_BASE_KEY);
+    if (saved && saved.replace(/\/+$/, '') !== BUILD_DEFAULT) {
+      window.localStorage.removeItem(API_BASE_KEY);
+      return true;
+    }
+  } catch {
+    // 무시
+  }
+  return false;
 }
 
 export const apiBase = resolveApiBase();
@@ -46,7 +74,18 @@ export async function postJob(form: FormData): Promise<{ id: string; status: str
   try {
     r = await fetch(`${apiBase}/jobs`, { method: 'POST', body: form });
   } catch {
-    throw new ApiUnreachableError(apiBase);
+    // 저장해 둔 임시 주소가 죽은 경우 — 버리고 정식 주소로 한 번 더 시도한다.
+    // 이걸 안 하면 사용자는 페이지를 아무리 새로 고쳐도 죽은 서버만 계속 친다.
+    if (clearSavedApiBase()) {
+      try {
+        r = await fetch(`${BUILD_DEFAULT}/jobs`, { method: 'POST', body: form });
+        window.location.reload();
+      } catch {
+        throw new ApiUnreachableError(apiBase);
+      }
+    } else {
+      throw new ApiUnreachableError(apiBase);
+    }
   }
   if (!r.ok) {
     const t = await r.text();

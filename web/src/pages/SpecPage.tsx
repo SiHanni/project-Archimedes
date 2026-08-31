@@ -101,6 +101,7 @@ export default function SpecPage() {
             <tr><th>방식</th><td><b>제로샷 분류</b> — 미세조정 없이 지시문(프롬프트)만으로 분류. 따라서 <b>학습 데이터 0건</b>.</td></tr>
             <tr><th>사전학습 데이터</th><td className="dim">모델 제작사(Anthropic) 비공개</td></tr>
             <tr><th>자체 평가셋</th><td><b>리뷰 100건</b> — 사람이 직접 분류(모델 예측 비공개 상태에서 라벨링). 출처: 실제 유저 리뷰 · 시드 리뷰 · 부정 표본 확보용 작성 리뷰</td></tr>
+            <tr><th>수집 기간</th><td><b>2026-03-09 ~ 2026-08-31</b> (실제 유저 리뷰 88건 기준)</td></tr>
             <tr><th>태그 분포</th><td>친절 40 · 가격 26 · 신속 21 · <b>부정 5</b> · 해당없음 29</td></tr>
             <tr><th>측정값</th><td><b>Precision 92.56%</b> (기준 87.3% 이상 — 적합)</td></tr>
           </tbody>
@@ -247,7 +248,25 @@ export default function SpecPage() {
       </div>
 
       {/* ── 축 3 ── */}
-      <h3>③ 거리 추정</h3>
+      <h3>③ 거리 추정 <span className="tag-aux">시험항목 외 · 부가 기능</span></h3>
+      <div className="notice">
+        <p className="notice__title">시험항목과의 관계</p>
+        <p style={{ margin: 0 }}>
+          이 항목은 <b>완료판정 시험 대상이 아닙니다.</b> 시험항목 4(매칭)에 나오는 ‘거리’와는
+          다른 값이므로 혼동하지 않도록 구분해 둡니다.
+        </p>
+        <div className="table-wrap" style={{ marginTop: '0.6rem' }}>
+          <table className="batch-table">
+            <thead><tr><th>구분</th><th>시험항목 4 의 거리</th><th>본 항목의 거리</th></tr></thead>
+            <tbody>
+              <tr><td>무엇을 재나</td><td>고객 ↔ 금은방</td><td><b>카메라 ↔ 귀금속</b></td></tr>
+              <tr><td>단위·범위</td><td>km (7.27 ~ 47.91)</td><td>cm (6.2 ~ 20.8)</td></tr>
+              <tr><td>산출 방법</td><td>좌표 하버사인 직선거리</td><td>핀홀 기하 + 크기 가정</td></tr>
+              <tr><td>정답 유무</td><td className="ok">있음 (좌표로 확정)</td><td className="bad">없음 (실측 표본 미확보)</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
       <div className="table-wrap">
         <table className="batch-table spec-kv">
           <tbody>

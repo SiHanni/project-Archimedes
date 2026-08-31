@@ -426,3 +426,5 @@ a:hover {
 ol.steps { padding-left: 1.3rem; }
 ol.steps li { margin: 0.5rem 0; line-height: 1.75; }
 @media (max-width: 640px) { .shots { grid-template-columns: 1fr; } .spec-kv th { width: auto; } }
+.tag-aux { font-size: 0.7em; font-weight: 500; opacity: 0.6; border: 1px solid currentColor;
+  border-radius: 99px; padding: 0.1em 0.6em; margin-left: 0.5em; vertical-align: middle; }

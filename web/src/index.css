@@ -403,3 +403,26 @@ a:hover {
 .badge-queued { background: rgba(120, 120, 120, 0.14); opacity: 0.85; }
 .badge-idle { background: transparent; opacity: 0.5; }
 .muted.small { font-size: 0.85rem; }
+
+/* ── 모델 명세 페이지 ─────────────────────────────────────────────────── */
+.spec h3 { margin: 2.4rem 0 0.6rem; padding-top: 1.2rem; border-top: 2px solid var(--line, #e3e6ec); }
+.spec h4 { margin: 1.6rem 0 0.5rem; font-size: 1rem; }
+.spec-kv th { width: 12rem; vertical-align: top; white-space: normal; }
+.spec-kv td { white-space: normal; }
+.batch-table tr.clickable { cursor: pointer; }
+.batch-table tr.clickable:hover td { background: rgba(0, 0, 0, 0.03); }
+.batch-table tr.sum td { border-top: 2px solid var(--line, #e3e6ec); font-weight: 600; }
+.batch-table tr.ok-row td { background: rgba(26, 127, 75, 0.07); }
+.shots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.8rem; margin: 0.6rem 0; }
+.shots figure { margin: 0; }
+.shots img { width: 100%; border-radius: 6px; border: 1px solid var(--line, #e3e6ec); display: block; }
+.shots figcaption { font-size: 0.78rem; opacity: 0.65; margin-top: 0.25rem; text-align: center; }
+.eq-box { border: 1px solid var(--line, #e3e6ec); border-left: 3px solid currentColor;
+  border-radius: 8px; padding: 1rem 1.2rem; margin: 1rem 0; background: rgba(0, 0, 0, 0.02); }
+.eq-main { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1.15rem; font-weight: 600; }
+.eq-sub { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem;
+  opacity: 0.75; margin-top: 0.4rem; line-height: 1.9; }
+.notice.warn-box { border-color: #f3d9a4; background: #fffaf0; }
+ol.steps { padding-left: 1.3rem; }
+ol.steps li { margin: 0.5rem 0; line-height: 1.75; }
+@media (max-width: 640px) { .shots { grid-template-columns: 1fr; } .spec-kv th { width: auto; } }

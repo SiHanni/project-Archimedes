@@ -5,6 +5,7 @@ import { LegalPage } from './pages/LegalPage';
 import { DistancePage } from './pages/DistancePage';
 import { OutlinePage } from './pages/OutlinePage';
 import BatchPage from './pages/BatchPage';
+import SpecPage from './pages/SpecPage';
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
           <Link to="/outline">외곽선 추출</Link>
           <Link to="/distance">거리 측정</Link>
           <Link to="/batch">여러 장 한 번에</Link>
+          <Link to="/spec">모델 명세</Link>
           <Link to="/legal/terms">이용약관</Link>
           <Link to="/legal/privacy">개인정보</Link>
         </nav>
@@ -36,6 +38,7 @@ export default function App() {
         <Route path="/outline" element={<OutlinePage />} />
         <Route path="/distance" element={<DistancePage />} />
         <Route path="/batch" element={<BatchPage />} />
+        <Route path="/spec" element={<SpecPage />} />
         <Route path="/legal/terms" element={<LegalPage kind="terms" />} />
         <Route path="/legal/privacy" element={<LegalPage kind="privacy" />} />
       </Routes>

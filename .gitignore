@@ -21,3 +21,5 @@ models/depthpro/
 models/detector/
 # 모델 가중치는 레포에 넣지 않는다 — scripts/fetch-models.sh 로 받는다
 worker/models/
+# 학습된 가중치는 레포에 넣지 않는다 — 재현은 nlp/cv_roberta.py 로 한다
+nlp/model/

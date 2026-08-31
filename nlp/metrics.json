@@ -1,0 +1,89 @@
+{
+ "valid": {
+  "per_tag": {
+   "KIND": {
+    "tp": 9,
+    "fp": 0,
+    "fn": 0,
+    "precision": 1.0,
+    "recall": 1.0
+   },
+   "FAST": {
+    "tp": 3,
+    "fp": 1,
+    "fn": 1,
+    "precision": 0.75,
+    "recall": 0.75
+   },
+   "PRICE": {
+    "tp": 7,
+    "fp": 0,
+    "fn": 0,
+    "precision": 1.0,
+    "recall": 1.0
+   },
+   "NEGATIVE": {
+    "tp": 1,
+    "fp": 0,
+    "fn": 0,
+    "precision": 1.0,
+    "recall": 1.0
+   }
+  },
+  "tp": 25,
+  "fp": 1,
+  "precision": 0.9615384615384616,
+  "exact_match": 0.9,
+  "n": 20
+ },
+ "test": {
+  "per_tag": {
+   "KIND": {
+    "tp": 8,
+    "fp": 4,
+    "fn": 1,
+    "precision": 0.6666666666666666,
+    "recall": 0.8888888888888888
+   },
+   "FAST": {
+    "tp": 7,
+    "fp": 2,
+    "fn": 0,
+    "precision": 0.7777777777777778,
+    "recall": 1.0
+   },
+   "PRICE": {
+    "tp": 3,
+    "fp": 0,
+    "fn": 1,
+    "precision": 1.0,
+    "recall": 0.75
+   },
+   "NEGATIVE": {
+    "tp": 0,
+    "fp": 0,
+    "fn": 1,
+    "precision": null,
+    "recall": 0.0
+   }
+  },
+  "tp": 20,
+  "fp": 6,
+  "precision": 0.7692307692307693,
+  "exact_match": 0.6,
+  "n": 20
+ },
+ "thresholds": {
+  "KIND": 0.25,
+  "FAST": 0.1,
+  "PRICE": 0.9,
+  "NEGATIVE": 0.25
+ },
+ "split": {
+  "train": 333,
+  "valid": 20,
+  "test": 20,
+  "train_human": 60,
+  "train_weak": 273
+ }
+}

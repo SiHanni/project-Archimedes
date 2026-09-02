@@ -208,9 +208,9 @@ def _matte_outline(bgr: np.ndarray, settings: Any) -> OutlineResult | None:
         px = int(cv2.countNonZero(m))
         stages.append({"step": name, "note": note, "px": px, "frac": round(px / total, 6)})
 
-    snap("모델 추론", f"BiRefNet {matter.name} · 1024×1024 · 임계 0.5", mask)
+    snap("모델 추론", "BiRefNet · 입력 1024×1024 · 확률 임계 0.5", mask)
     if meta.get("refine") == "crop_rerun":
-        stages[-1]["note"] += f" · 크롭 재추론 적용(비율 {meta.get('refine_ratio')})"
+        stages[-1]["note"] += f" · 크롭 재추론 적용 (2차/1차 = {meta.get('refine_ratio')})"
     elif meta.get("refine"):
         stages[-1]["note"] += f" · 크롭 재추론 {meta.get('refine')}"
 
@@ -219,22 +219,23 @@ def _matte_outline(bgr: np.ndarray, settings: Any) -> OutlineResult | None:
     mask, nm_meta = drop_non_metal(mask, bgr)
     meta.update(nm_meta)
     snap("비귀금속 제외",
-         f"성분 유지 {nm_meta.get('components_kept', 0)} · 제외 {nm_meta.get('components_dropped', 0)}"
-         f" · 코어추출 {nm_meta.get('components_cored', 0)} (채도≥0.20 또는 정반사≥0.005)", mask)
+         f"판정: 채도 ≥ 0.20 또는 정반사 ≥ 0.005 → 유지 "
+         f"| 유지 {nm_meta.get('components_kept', 0)}개 · 제외 {nm_meta.get('components_dropped', 0)}개"
+         f" · 코어추출 {nm_meta.get('components_cored', 0)}개", mask)
 
     # 성분 단위로 못 가른 것(제품에 붙은 상자·구멍으로 비치는 받침)을 파낸다
     mask, cv_meta = carve_non_metal(mask, bgr)
     meta.update(cv_meta)
     snap("포장 제거",
-         f"{cv_meta.get('carve')} · 파냄 {cv_meta.get('carve_blobs', 0)}"
-         f" · 금속보호 {cv_meta.get('carve_protected', 0)} (금 색상 H 5~45 밖 & 정반사<0.02)", mask)
+         f"판정: 색상 H 5~45(금) 밖 & 정반사 < 0.02 → 제거 "
+         f"| 제거 {cv_meta.get('carve_blobs', 0)}개 · 금속으로 보존 {cv_meta.get('carve_protected', 0)}개", mask)
 
     # 모델이 못 파낸 구멍(배경이 비쳐 보이는 곳)을 파낸다
     mask, hc_meta = carve_seethrough_holes(mask, bgr)
     meta.update(hc_meta)
     snap("투과 영역 제거",
-         f"{hc_meta.get('hole_carve')} · 구멍 {hc_meta.get('hole_carve_count', 0)}"
-         f" (배경과 Lab 거리 ≤ 45)", mask)
+         f"판정: 채도 < 0.25 & 밝기 ≥ 0.60 & 배경과 Lab 거리 ≤ 45 → 제거 "
+         f"| 제거 {hc_meta.get('hole_carve_count', 0)}개", mask)
 
     meta["stages"] = stages
     meta["area_frac"] = round(float(cv2.countNonZero(mask)) / total, 6)

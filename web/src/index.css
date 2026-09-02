@@ -433,10 +433,25 @@ ol.steps li { margin: 0.5rem 0; line-height: 1.75; }
 .shot figcaption { font-size: 0.85rem; opacity: 0.7; margin-top: 0.35rem; }
 
 /* ── 단계별 연산 표 ─────────────────────────────────────────────────── */
-.trace { margin: 1.25rem 0; }
-.trace__h { margin: 1.2rem 0 .4rem; font-size: .95rem; }
-.trace__t th, .trace__t td { padding: .45rem .6rem; font-size: .84rem; }
-.trace__t td.dim { white-space: normal; max-width: 26rem; line-height: 1.55; }
+/* 단계별 연산 표 — 심사 제출용 캡처 대상이다.
+   본문은 모바일 폭(480px)에 맞춰져 있으나 이 표는 열이 많아 그 폭에서 잘린다.
+   화면 밖으로 넘겨 전체 폭을 쓰게 하고, 좁은 화면에서는 가로 스크롤로 둔다. */
+.trace {
+  margin: 1.5rem 0;
+  width: min(1040px, calc(100vw - 2rem));
+  margin-left: 50%;
+  transform: translateX(-50%);
+}
+.trace__h { margin: 1.3rem 0 .45rem; font-size: 1rem; font-weight: 650; }
+.trace__t { width: 100%; }
+.trace__t th, .trace__t td { padding: .5rem .7rem; font-size: .84rem; }
+.trace__t th { white-space: nowrap; }
+.trace__t td.dim { white-space: normal; line-height: 1.6; min-width: 20rem; }
 .trace__t .neg { color: #c0392b; }
-.trace__f { margin-top: .4rem; }
+.trace__t tr.sum td { border-top: 2px solid var(--line, #e3e6ec); font-weight: 600; }
+.trace__f { margin-top: .5rem; }
 .trace__f code { font-size: .85em; }
+@media (max-width: 900px) {
+  .trace { width: calc(100vw - 2rem); }
+  .trace__t td.dim { min-width: 16rem; }
+}

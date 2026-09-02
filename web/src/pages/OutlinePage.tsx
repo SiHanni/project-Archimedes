@@ -5,6 +5,7 @@
  * 라벨링 데이터셋을 만들려고 누끼만 뽑는 사용자에게 그 시간을 물릴 이유가 없다.
  * 이 탭은 몇 초면 끝난다.
  */
+import { StepTrace } from '../components/StepTrace';
 import { useJobUpload } from '../hooks/useJobUpload';
 import { OutlineResult } from '../components/OutlineResult';
 
@@ -81,6 +82,7 @@ export function OutlinePage() {
           <div style={{ marginTop: '1.25rem' }}>
             <h3>추출 결과</h3>
             <OutlineResult job={job} />
+            <StepTrace job={job} />
           </div>
         )}
       </section>

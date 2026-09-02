@@ -12,6 +12,7 @@
  */
 import { useState } from 'react';
 import { useJobUpload } from '../hooks/useJobUpload';
+import { StepTrace } from '../components/StepTrace';
 import { OutlineResult } from '../components/OutlineResult';
 
 // Depth Pro(1GB) 를 CPU 로 돌려 2~3분 걸린다. 여유를 두고 8분.
@@ -176,6 +177,7 @@ export function DistancePage() {
                 ))}
               </ul>
             )}
+            <StepTrace job={job} />
             <div style={{ marginTop: '1rem' }}>
               <OutlineResult job={job} showDownloads={false} />
             </div>

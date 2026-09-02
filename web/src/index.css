@@ -428,3 +428,15 @@ ol.steps li { margin: 0.5rem 0; line-height: 1.75; }
 @media (max-width: 640px) { .shots { grid-template-columns: 1fr; } .spec-kv th { width: auto; } }
 .tag-aux { font-size: 0.7em; font-weight: 500; opacity: 0.6; border: 1px solid currentColor;
   border-radius: 99px; padding: 0.1em 0.6em; margin-left: 0.5em; vertical-align: middle; }
+.shot { margin: 1.4rem 0; }
+.shot img { width: 100%; border: 1px solid var(--line, #e3e6ec); border-radius: 6px; display: block; }
+.shot figcaption { font-size: 0.85rem; opacity: 0.7; margin-top: 0.35rem; }
+
+/* ── 단계별 연산 표 ─────────────────────────────────────────────────── */
+.trace { margin: 1.25rem 0; }
+.trace__h { margin: 1.2rem 0 .4rem; font-size: .95rem; }
+.trace__t th, .trace__t td { padding: .45rem .6rem; font-size: .84rem; }
+.trace__t td.dim { white-space: normal; max-width: 26rem; line-height: 1.55; }
+.trace__t .neg { color: #c0392b; }
+.trace__f { margin-top: .4rem; }
+.trace__f code { font-size: .85em; }

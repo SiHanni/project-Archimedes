@@ -97,7 +97,37 @@ class DistanceEstimate:
 
     def as_meta(self) -> dict[str, Any]:
         lo, hi = self.range_mm
+        # 화면·보고서에서 "어떤 값으로 어떻게 계산했는지"를 그대로 보여주기 위한
+        # 단계 기록. 심사에서 산식과 대입값을 함께 요구하므로 결과에 싣는다.
+        steps = [
+            {"step": "1. 초점거리 f",
+             "value": f"{self.focal_px:.1f} px",
+             "note": ("사진의 촬영 정보(EXIF)에서 확보"
+                      if self.focal_source == "exif"
+                      else "Depth Pro 추정 (EXIF 없음). 입력은 가로세로비 유지 레터박스")},
+            {"step": "2. 실제 크기 S",
+             "value": f"{self.assumed_long_mm:.1f} mm",
+             "note": ("입력값 사용 (±2%)" if self.size_source == "user_input"
+                      else f"{self.prior.korean if self.prior else '제품'} 대표값 가정"
+                           f" (±{int((self.prior.spread if self.prior else 0) * 100)}%)"
+                           f"{' · ' + self.prior.note if self.prior else ''}")},
+            {"step": "3. 사진 속 크기 p",
+             "value": f"{self.object_long_px:.1f} px",
+             "note": "누끼의 최소외접사각형 긴 변 (bbox 아님 — 기울면 대각선까지 세어 거리가 짧아진다)"},
+            {"step": "4. 거리 Z = f × S / p",
+             "value": f"{self.distance_mm:.1f} mm ({self.distance_mm / 10:.1f} cm)",
+             "note": f"{self.focal_px:.1f} × {self.assumed_long_mm:.1f} ÷ {self.object_long_px:.1f}"
+                     f" = {self.distance_mm:.1f}"},
+            {"step": "5. 오차 √(크기폭² + 초점폭²)",
+             "value": f"±{self.relative_sigma * 100:.1f}%",
+             "note": f"√({(self.prior.spread if self.size_source != 'user_input' and self.prior else 0.02):.2f}²"
+                     f" + 0.08²) = {self.relative_sigma:.4f}"},
+            {"step": "6. 범위",
+             "value": f"{lo / 10:.1f} ~ {hi / 10:.1f} cm",
+             "note": f"{self.distance_mm / 10:.1f} cm × (1 ∓ {self.relative_sigma:.4f})"},
+        ]
         return {
+            "steps": steps,
             "object_mm": round(self.distance_mm, 1),
             "range_mm": [round(lo, 1), round(hi, 1)],
             "relative_sigma": round(self.relative_sigma, 4),

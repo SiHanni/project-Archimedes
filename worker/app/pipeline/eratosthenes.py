@@ -198,18 +198,48 @@ def _matte_outline(bgr: np.ndarray, settings: Any) -> OutlineResult | None:
         log.warning("matte area %.4f out of range — falling back to appearance", frac)
         return None
 
+    # 단계마다 마스크 면적을 기록한다. 화면에서 "어느 단계가 무엇을 얼마나
+    # 바꿨는지"를 수치로 보여주기 위한 것이며, 검증·심사에서 근거가 된다.
+    h, w = bgr.shape[:2]
+    total = float(h * w)
+    stages: list[dict[str, Any]] = []
+
+    def snap(name: str, note: str, m: np.ndarray) -> None:
+        px = int(cv2.countNonZero(m))
+        stages.append({"step": name, "note": note, "px": px, "frac": round(px / total, 6)})
+
+    snap("모델 추론", f"BiRefNet {matter.name} · 1024×1024 · 임계 0.5", mask)
+    if meta.get("refine") == "crop_rerun":
+        stages[-1]["note"] += f" · 크롭 재추론 적용(비율 {meta.get('refine_ratio')})"
+    elif meta.get("refine"):
+        stages[-1]["note"] += f" · 크롭 재추론 {meta.get('refine')}"
+
     # 모델은 "두드러진 물체"를 잡지 "귀금속"을 잡지 않는다. 케이스·저울·서류가
     # 딸려 오므로 색으로 한 번 더 거른다 — 근거는 `pipeline/non_metal.py` 머리말.
     mask, nm_meta = drop_non_metal(mask, bgr)
     meta.update(nm_meta)
+    snap("비귀금속 제외",
+         f"성분 유지 {nm_meta.get('components_kept', 0)} · 제외 {nm_meta.get('components_dropped', 0)}"
+         f" · 코어추출 {nm_meta.get('components_cored', 0)} (채도≥0.20 또는 정반사≥0.005)", mask)
+
     # 성분 단위로 못 가른 것(제품에 붙은 상자·구멍으로 비치는 받침)을 파낸다
     mask, cv_meta = carve_non_metal(mask, bgr)
     meta.update(cv_meta)
+    snap("포장 제거",
+         f"{cv_meta.get('carve')} · 파냄 {cv_meta.get('carve_blobs', 0)}"
+         f" · 금속보호 {cv_meta.get('carve_protected', 0)} (금 색상 H 5~45 밖 & 정반사<0.02)", mask)
+
     # 모델이 못 파낸 구멍(배경이 비쳐 보이는 곳)을 파낸다
     mask, hc_meta = carve_seethrough_holes(mask, bgr)
     meta.update(hc_meta)
-    h, w = bgr.shape[:2]
-    meta["area_frac"] = round(float(cv2.countNonZero(mask)) / float(h * w), 6)
+    snap("투과 영역 제거",
+         f"{hc_meta.get('hole_carve')} · 구멍 {hc_meta.get('hole_carve_count', 0)}"
+         f" (배경과 Lab 거리 ≤ 45)", mask)
+
+    meta["stages"] = stages
+    meta["area_frac"] = round(float(cv2.countNonZero(mask)) / total, 6)
+    meta["area_px"] = int(cv2.countNonZero(mask))
+    meta["image_px"] = int(total)
 
     meta.update({"scale_available": False, "card_present": False, "matting": "birefnet"})
     log.info("outline via birefnet frac=%.5f", frac)
